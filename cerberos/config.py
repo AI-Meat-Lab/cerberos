@@ -47,12 +47,12 @@ class RunConfig:
             self.val_pct /= total
             self.test_pct /= total
 
-        if self.verify_with != "none":
-            if self.prefilter_threshold > self.similarity_threshold:
-                # Prefilter must be looser than the final threshold.
-                self.prefilter_threshold = max(
-                    0.0, self.similarity_threshold - 0.3
-                )
+        if (self.verify_with != "none"
+                and self.prefilter_threshold > self.similarity_threshold):
+            # Prefilter must be looser than the final threshold.
+            self.prefilter_threshold = max(
+                0.0, self.similarity_threshold - 0.3
+            )
 
     def as_dict(self) -> dict:
         return {
