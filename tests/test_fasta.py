@@ -85,7 +85,7 @@ def test_write_wraps_at_60(tmp_path):
     write_fasta(recs, str(out))
     lines = out.read_text().splitlines()
     assert len(lines) == 5
-    assert all(len(l) <= 60 for l in lines[1:])
+    assert all(len(line) <= 60 for line in lines[1:])
 
 
 def test_write_preserves_label(tmp_path):
