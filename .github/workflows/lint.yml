@@ -24,16 +24,13 @@ jobs:
       - name: Install tools
         run: |
           python -m pip install --upgrade pip
-          pip install ruff black isort mypy numpy
+          pip install "ruff>=0.6" mypy numpy
 
-      - name: ruff
-        run: ruff check --fix cerberos/ tests/
+      - name: ruff lint
+        run: ruff check cerberos/ tests/
 
-      - name: black --check
-        run: black --check cerberos/ tests/
-
-      - name: isort --check
-        run: isort --check-only cerberos/ tests/
+      - name: ruff format --check
+        run: ruff format --check cerberos/ tests/
 
       - name: mypy
         run: mypy cerberos/ --ignore-missing-imports --no-strict-optional
