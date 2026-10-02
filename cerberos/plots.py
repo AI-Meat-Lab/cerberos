@@ -78,13 +78,15 @@ def _boxplots(splits, path):
         vals, labs, cols = [], [], []
         for n in data:
             if f in data[n]:
-                vals.append(data[n][f]); labs.append(n)
+                vals.append(data[n][f])
+                labs.append(n)
                 cols.append(colors.get(n, "gray"))
         if not vals:
             continue
         bp = ax.boxplot(vals, patch_artist=True, labels=labs, showfliers=False)
         for p, c in zip(bp["boxes"], cols):
-            p.set_facecolor(c); p.set_alpha(0.7)
+            p.set_facecolor(c)
+            p.set_alpha(0.7)
         ax.set_title(f, fontsize=10)
     fig.suptitle("Biochemical / composition feature distributions")
     fig.tight_layout(rect=[0, 0, 1, 0.96])
@@ -101,16 +103,21 @@ def _pca(splits, path, k=3, max_n=4000, seed=0):
     seqs, labels = [], []
     for n, recs in splits.items():
         for r in recs:
-            seqs.append(r[2]); labels.append(n)
+            seqs.append(r[2])
+            labels.append(n)
     if not seqs:
         return
     if len(seqs) > max_n:
         idx = rng.choice(len(seqs), max_n, replace=False)
-        seqs = [seqs[i] for i in idx]; labels = [labels[i] for i in idx]
+        seqs = [seqs[i] for i in idx]
+        labels = [labels[i] for i in idx]
     vocab, per = set(), []
     for s in seqs:
-        ks = kmers(s, k); per.append(ks); vocab.update(ks)
-    vocab = sorted(vocab); vi = {km: i for i, km in enumerate(vocab)}
+        ks = kmers(s, k)
+        per.append(ks)
+        vocab.update(ks)
+    vocab = sorted(vocab)
+    vi = {km: i for i, km in enumerate(vocab)}
     X = np.zeros((len(seqs), len(vocab)), dtype=np.float32)
     for i, ks in enumerate(per):
         for km in ks:
@@ -128,7 +135,8 @@ def _pca(splits, path, k=3, max_n=4000, seed=0):
         if mask.sum():
             ax.scatter(proj[mask, 0], proj[mask, 1], s=10, alpha=0.55,
                        c=colors.get(n, "gray"), label=f"{n} (n={mask.sum()})")
-    ax.set_xlabel("PC1"); ax.set_ylabel("PC2")
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
     ax.set_title(f"PCA of {k}-mer profiles")
     ax.legend(fontsize=8)
     fig.tight_layout()
@@ -195,8 +203,10 @@ def _label_balance(splits, path):
     fig, ax = plt.subplots(figsize=(5.5, 3.8))
     ax.bar(x - 0.2, neg, 0.4, label="label 0", color="#4C72B0")
     ax.bar(x + 0.2, pos, 0.4, label="label 1", color="#C44E52")
-    ax.set_xticks(x); ax.set_xticklabels(names)
-    ax.set_ylabel("Count"); ax.set_title("Label balance per split")
+    ax.set_xticks(x)
+    ax.set_xticklabels(names)
+    ax.set_ylabel("Count")
+    ax.set_title("Label balance per split")
     ax.legend()
     fig.tight_layout()
     fig.savefig(path, dpi=150)
