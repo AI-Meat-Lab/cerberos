@@ -35,7 +35,7 @@ def test_sample_caps_length():
 
 def test_mean_pairwise_same():
     seqs = ["ACDEFGHIKL", "ACDEFGHIKM"]
-    m, s, n = _mean_pairwise_jaccard(seqs, seqs, k=3, same=True)
+    m, _s, n = _mean_pairwise_jaccard(seqs, seqs, k=3, same=True)
     assert n == 1
     assert 0.0 <= m <= 1.0
 
@@ -43,7 +43,7 @@ def test_mean_pairwise_same():
 def test_mean_pairwise_different():
     a = ["ACDEFGHIKL"]
     b = ["YYYYYYYYYY"]
-    m, s, n = _mean_pairwise_jaccard(a, b, k=3, same=False)
+    m, _s, n = _mean_pairwise_jaccard(a, b, k=3, same=False)
     assert n == 1
     assert m == 0.0
 
