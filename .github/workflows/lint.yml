@@ -27,7 +27,7 @@ jobs:
           pip install ruff black isort mypy numpy
 
       - name: ruff
-        run: ruff check cerberos/ tests/
+        run: ruff check --fix cerberos/ tests/
 
       - name: black --check
         run: black --check cerberos/ tests/
