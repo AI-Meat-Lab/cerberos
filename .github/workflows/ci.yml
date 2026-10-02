@@ -40,8 +40,8 @@ jobs:
       - name: Verify numpy-only promise
         run: |
           python -c "import cerberos; print('import ok')"
-          python -c "import importlib,sys; [sys.exit(f'{m} should NOT be installed') for m in ('scipy','matplotlib') if importlib.util.find_spec(m) is not None]; print('optional deps correctly absent')"
-
+          python -c "from importlib.util import find_spec; import sys; sys.exit(1) if any(find_spec(m) is not None for m in ('scipy','matplotlib')) else print('optional deps correctly absent')"
+          
       - name: Run unit tests (skipping optional)
         env:
           PEPTIDE_SPLITTER_NO_MPL: "1"
