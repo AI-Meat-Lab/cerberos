@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cerberos"
+version = "2.0.0"
+description = "Homology-aware, OOD-safe splitting of peptide FASTA files. Pure Python, no external tools."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [{ name = "Your Name", email = "you@example.com" }]
+keywords = ["peptides","fasta","train-test-split","minhash","lsh",
+            "out-of-distribution","ood","bioinformatics",
+            "antimicrobial-peptides"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+dependencies = ["numpy>=1.20"]
+
+[project.optional-dependencies]
+plots = ["matplotlib>=3.5"]
+stats = ["scipy>=1.7"]
+full  = ["matplotlib>=3.5", "scipy>=1.7"]
+dev   = ["pytest>=7.0","pytest-cov>=4.0","pytest-timeout>=2.1",
+         "pytest-xdist>=3.0","hypothesis>=6.0","black>=23.0",
+         "ruff>=0.4","isort>=5.12","mypy>=1.5","build>=1.0","twine>=4.0"]
+
+[project.scripts]
+cerberos = "cerberos.cli:main"
+
+[project.urls]
+Homepage      = "https://github.com/your-org/cerberos"
+Documentation = "https://github.com/your-org/cerberos#readme"
+Repository    = "https://github.com/your-org/cerberos"
+Issues        = "https://github.com/your-org/cerberos/issues"
+
+[tool.setuptools.packages.find]
+include = ["cerberos*"]
+
+[tool.setuptools.package-data]
+cerberos = ["py.typed"]
+
+# ── tool config (identical to before, abbreviated here) ──
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-ra -q --strict-markers --strict-config"
+markers = [
+    "optional: requires scipy and/or matplotlib",
+    "slow: long-running test",
+]
+
+[tool.coverage.run]
+source = ["cerberos"]
+branch = true
+
+[tool.black]
+line-length = 88
+target-version = ["py311","py312", "py314"]
+
+[tool.isort]
+profile = "black"
+known_first_party = ["cerberos"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E","W","F","I","B","C4","UP","SIM","RUF"]
+ignore = ["E501","B008","SIM108"]
+
+[tool.mypy]
+python_version = "3.8"
+ignore_missing_imports = true
