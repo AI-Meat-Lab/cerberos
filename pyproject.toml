@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cerberos"
-version = "2.0.0"
+version = "0.0.1b"
 description = "Homology-aware, OOD-safe splitting of peptide FASTA files. Pure Python, no external tools."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -19,11 +19,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 
@@ -41,10 +39,10 @@ dev   = ["pytest>=7.0","pytest-cov>=4.0","pytest-timeout>=2.1",
 cerberos = "cerberos.cli:main"
 
 [project.urls]
-Homepage      = "https://github.com/your-org/cerberos"
-Documentation = "https://github.com/your-org/cerberos#readme"
-Repository    = "https://github.com/your-org/cerberos"
-Issues        = "https://github.com/your-org/cerberos/issues"
+Homepage      = "https://github.com/AI-Meat-Lab/cerberos"
+Documentation = "https://github.com/AI-Meat-Lab/cerberos#readme"
+Repository    = "https://github.com/AI-Meat-Lab/cerberos"
+Issues        = "https://github.com/AI-Meat-Lab/cerberos/issues"
 
 [tool.setuptools.packages.find]
 include = ["cerberos*"]
@@ -54,13 +52,21 @@ cerberos = ["py.typed"]
 
 # ── tool config (identical to before, abbreviated here) ──
 [tool.pytest.ini_options]
-minversion = "7.0"
-testpaths = ["tests"]
-addopts = "-ra -q --strict-markers --strict-config"
-markers = [
-    "optional: requires scipy and/or matplotlib",
-    "slow: long-running test",
-]
+minversion = 7.0
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts =
+    -ra
+    -q
+    --strict-markers
+    --strict-config
+markers =
+    optional: requires scipy and/or matplotlib
+    slow:     long-running test (deselect with -m "not slow")
+filterwarnings =
+    ignore::DeprecationWarning
 
 [tool.coverage.run]
 source = ["cerberos"]
