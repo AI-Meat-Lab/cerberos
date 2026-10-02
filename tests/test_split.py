@@ -152,7 +152,7 @@ def test_split_records_keeps_homolog_family_together(
                          kmer_sizes=[3])
     splits = split_records(homologous_records, cfg, verbose=False)
     family = {0, 1, 2, 3}
-    for name, recs in splits.items():
+    for _name, recs in splits.items():
         idx = {i for i, r in enumerate(homologous_records) if r in recs}
         if family & idx:
             assert family.issubset(idx)
