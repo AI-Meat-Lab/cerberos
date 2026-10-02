@@ -110,7 +110,24 @@ extend-exclude = ["build", "dist", ".venv", ".tox"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "RUF"]
-ignore = ["E501", "B008", "SIM108"]
+ignore = [
+    "E501",     # line length — black handles it
+    "B008",     # function call in default arg (argparse uses it)
+    "SIM108",   # ternary operator suggestion
+
+    # Modern-typing rules — silenced to keep py3.8-compatible
+    # `typing.List` / `Optional[...]` without `from __future__ import
+    # annotations` everywhere. Switch these off when you drop 3.8.
+    "UP006",    # List[X]        → list[X]
+    "UP007",    # Union[X, Y]    → X | Y
+    "UP035",    # deprecated typing imports
+    "UP045",    # Optional[X]    → X | None
+
+    # Micro-style preferences
+    "RUF046",   # int(round(x)) — kept for explicit readability
+    "C408",     # dict(k=v, ...) — kept for multi-line readability
+    "RUF022",   # __all__ sorting — personal preference
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "B011"]
