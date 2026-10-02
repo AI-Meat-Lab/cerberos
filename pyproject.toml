@@ -2,6 +2,9 @@
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
+# ═════════════════════════════════════════════════════════════
+# Project metadata
+# ═════════════════════════════════════════════════════════════
 [project]
 name = "cerberos"
 version = "0.0.1b"
@@ -10,9 +13,11 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
 authors = [{ name = "Your Name", email = "you@example.com" }]
-keywords = ["peptides","fasta","train-test-split","minhash","lsh",
-            "out-of-distribution","ood","bioinformatics",
-            "antimicrobial-peptides"]
+keywords = [
+    "peptides", "fasta", "train-test-split", "minhash", "lsh",
+    "out-of-distribution", "ood", "bioinformatics",
+    "antimicrobial-peptides",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -31,63 +36,126 @@ dependencies = ["numpy>=1.20"]
 plots = ["matplotlib>=3.5"]
 stats = ["scipy>=1.7"]
 full  = ["matplotlib>=3.5", "scipy>=1.7"]
-dev   = ["pytest>=7.0","pytest-cov>=4.0","pytest-timeout>=2.1",
-         "pytest-xdist>=3.0","hypothesis>=6.0","black>=23.0",
-         "ruff>=0.4","isort>=5.12","mypy>=1.5","build>=1.0","twine>=4.0"]
+dev   = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-timeout>=2.1",
+    "pytest-xdist>=3.0",
+    "hypothesis>=6.0",
+    "black>=23.0",
+    "ruff>=0.4",
+    "isort>=5.12",
+    "mypy>=1.5",
+    "build>=1.0",
+    "twine>=4.0",
+]
 
 [project.scripts]
 cerberos = "cerberos.cli:main"
 
 [project.urls]
-Homepage      = "https://github.com/AI-Meat-Lab/cerberos"
-Documentation = "https://github.com/AI-Meat-Lab/cerberos#readme"
-Repository    = "https://github.com/AI-Meat-Lab/cerberos"
-Issues        = "https://github.com/AI-Meat-Lab/cerberos/issues"
+Homepage      = "https://github.com/your-org/cerberos"
+Documentation = "https://github.com/your-org/cerberos#readme"
+Repository    = "https://github.com/your-org/cerberos"
+Issues        = "https://github.com/your-org/cerberos/issues"
 
+# ═════════════════════════════════════════════════════════════
+# Packaging
+# ═════════════════════════════════════════════════════════════
 [tool.setuptools.packages.find]
 include = ["cerberos*"]
 
 [tool.setuptools.package-data]
 cerberos = ["py.typed"]
 
-# ── tool config (identical to before, abbreviated here) ──
+# ═════════════════════════════════════════════════════════════
+# Pytest
+# ═════════════════════════════════════════════════════════════
 [tool.pytest.ini_options]
-minversion = 7.0
-testpaths = tests
-python_files = test_*.py
-python_classes = Test*
-python_functions = test_*
-addopts =
-    -ra
-    -q
-    --strict-markers
-    --strict-config
-markers =
-    optional: requires scipy and/or matplotlib
-    slow:     long-running test (deselect with -m "not slow")
-filterwarnings =
-    ignore::DeprecationWarning
+minversion = "7.0"
+testpaths  = ["tests"]
+addopts    = "-ra -q --strict-markers --strict-config"
+markers = [
+    "optional: requires scipy and/or matplotlib",
+    "slow: long-running test",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
 
+# ═════════════════════════════════════════════════════════════
+# Coverage
+# ═════════════════════════════════════════════════════════════
 [tool.coverage.run]
 source = ["cerberos"]
 branch = true
+omit   = ["tests/*"]
 
-[tool.black]
-line-length = 88
-target-version = ["py311","py312", "py314"]
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
 
-[tool.isort]
-profile = "black"
-known_first_party = ["cerberos"]
-
+# ═════════════════════════════════════════════════════════════
+# Ruff
+# ═════════════════════════════════════════════════════════════
 [tool.ruff]
-line-length = 88
+line-length    = 88
 target-version = "py38"
+extend-exclude = ["build", "dist", ".venv", ".tox"]
 
 [tool.ruff.lint]
-select = ["E","W","F","I","B","C4","UP","SIM","RUF"]
-ignore = ["E501","B008","SIM108"]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "RUF"]
+ignore = ["E501", "B008", "SIM108"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "B011"]
+
+# ═════════════════════════════════════════════════════════════
+# Black
+# ═════════════════════════════════════════════════════════════
+[tool.black]
+line-length    = 88
+target-version = ["py38", "py39", "py310", "py311", "py312"]
+extend-exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | build
+  | dist
+)/
+'''
+
+# ═════════════════════════════════════════════════════════════
+# isort
+# ═════════════════════════════════════════════════════════════
+[tool.isort]
+profile           = "black"
+line_length       = 88
+known_first_party = ["cerberos"]
+known_third_party = ["numpy", "scipy", "matplotlib", "pytest", "hypothesis"]
+
+# ═════════════════════════════════════════════════════════════
+# mypy
+# ═════════════════════════════════════════════════════════════
 [tool.mypy]
-python_version = "3.8"
+python_version         = "3.8"
+warn_unused_configs    = true
+ignore_missing_imports = true
+no_strict_optional     = true
+disallow_untyped_defs  = false
+check_untyped_defs     = true
+show_error_codes       = true
+exclude                = ["build/", "dist/", "tests/"]
+
+[[tool.mypy.overrides]]
+module = ["scipy.*", "matplotlib.*"]
 ignore_missing_imports = true
