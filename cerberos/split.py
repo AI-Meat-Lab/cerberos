@@ -27,13 +27,13 @@ def stratified_random_split(
     """Pure random split, stratified by label when labels exist."""
     rng = random.Random(config.seed)
     labels = [r[1] for r in records]
-    labeled = all(l is not None for l in labels)
+    labeled = all(lbl is not None for lbl in labels)
     assign: Dict[int, str] = {}
 
     if labeled:
         by_label: Dict[int, list] = defaultdict(list)
-        for i, l in enumerate(labels):
-            by_label[l].append(i)
+        for i, lbl in enumerate(labels):
+            by_label[lbl].append(i)
         for _, idxs in by_label.items():
             rng.shuffle(idxs)
             n_tr, n_va, _ = _target_sizes(len(idxs), config)
