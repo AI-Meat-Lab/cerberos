@@ -170,6 +170,27 @@ def test_build_report_audit_mode(labeled_records, config_factory):
     assert "audit mode" in report
 
 
+def test_report_warns_when_candidate_budget_was_reached(
+    labeled_records, config_factory
+):
+    cfg = config_factory()
+    splits = {
+        "train": labeled_records[:6],
+        "val": labeled_records[6:9],
+        "test": labeled_records[9:],
+    }
+    stats, _ = summarize(splits, cfg, kmer_k=3, sim_plot_cap=20)
+    stats["candidate_generation"] = {
+        "candidate_pairs_considered": 250_000,
+        "candidate_pairs_verified": 30_000,
+        "oversized_lsh_buckets_sampled": 0,
+        "candidate_limit_reached": True,
+    }
+    report = build_report(stats, mode="split")
+    assert "candidate-pair limit reached" in report
+    assert "No heuristic warnings" not in report
+
+
 def test_empty_splits_produce_strict_json_without_nan(config_factory):
     stats, _ = summarize(
         {"train": [], "val": [], "test": []},

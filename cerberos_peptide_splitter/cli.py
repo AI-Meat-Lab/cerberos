@@ -35,6 +35,12 @@ def _add_clustering(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--kmer-sizes", type=_parse_kmer_sizes, default=[3])
     parser.add_argument("--num-hashes", type=int, default=128)
     parser.add_argument(
+        "--max-candidate-pairs",
+        type=int,
+        default=250_000,
+        help="maximum LSH candidate pairs to examine (bounds time and memory)",
+    )
+    parser.add_argument(
         "--reduced-alphabet",
         choices=["none", "groups5", "groups7"],
         default="none",
@@ -62,6 +68,7 @@ def _build_config(args: argparse.Namespace) -> RunConfig:
         prefilter_threshold=args.prefilter_threshold,
         seed=args.seed,
         no_clustering=args.no_clustering,
+        max_candidate_pairs=args.max_candidate_pairs,
     )
 
 

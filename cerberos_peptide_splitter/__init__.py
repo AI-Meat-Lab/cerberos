@@ -6,7 +6,7 @@ from .fasta import parse_fasta, write_fasta
 from .pipeline import run_audit, run_split
 from .split import assign_clusters, split_records, stratified_random_split
 
-__version__ = "0.0.1b0"
+__version__ = "0.0.1b1"
 
 __all__ = [
     "RunConfig",

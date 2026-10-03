@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cerberos-peptide-splitter"
-version = "0.0.1b0"
+version = "0.0.1b1"
 description = "Approximate homology-aware splitting and diagnostics for peptide FASTA files"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -9,6 +9,7 @@ def test_default_config_is_normalized_and_json_friendly():
     config = RunConfig()
     assert config.train_pct + config.val_pct + config.test_pct == pytest.approx(1.0)
     assert config.as_dict()["kmer_sizes"] == [3]
+    assert config.as_dict()["max_candidate_pairs"] == 250_000
 
 
 def test_percentages_accept_common_scale_and_normalize():
@@ -32,6 +33,8 @@ def test_percentages_accept_common_scale_and_normalize():
         {"seed": True},
         {"train_pct": True},
         {"no_clustering": 1},
+        {"max_candidate_pairs": 0},
+        {"max_candidate_pairs": True},
         {"seed": 2**32},
     ],
 )

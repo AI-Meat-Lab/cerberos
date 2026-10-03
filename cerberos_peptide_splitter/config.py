@@ -30,6 +30,8 @@ class RunConfig:
     prefilter_threshold: float = 0.30
     seed: int = 42
     no_clustering: bool = False
+    max_candidate_pairs: int = 250_000
+    last_clustering_stats: dict = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.reduced_alphabet not in VALID_ALPHABETS:
@@ -85,6 +87,12 @@ class RunConfig:
             raise ValueError("seed must be an integer")
         if not isinstance(self.no_clustering, bool):
             raise ValueError("no_clustering must be a boolean")
+        if (
+            isinstance(self.max_candidate_pairs, bool)
+            or not isinstance(self.max_candidate_pairs, int)
+            or self.max_candidate_pairs < 1
+        ):
+            raise ValueError("max_candidate_pairs must be a positive integer")
         if not 0 <= self.seed <= _MAX_SEED:
             raise ValueError(f"seed must be between 0 and {_MAX_SEED}")
 
@@ -104,4 +112,5 @@ class RunConfig:
             ),
             "seed": self.seed,
             "no_clustering": self.no_clustering,
+            "max_candidate_pairs": self.max_candidate_pairs,
         }

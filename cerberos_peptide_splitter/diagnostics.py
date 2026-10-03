@@ -232,11 +232,38 @@ def build_report(stats: dict, mode: str) -> str:
             f"  similarity_thresh: {config.get('similarity_threshold')}",
             f"  kmer_sizes       : {config.get('kmer_sizes')}",
             f"  num_hashes       : {config.get('num_hashes')}",
+            f"  max_candidates   : {config.get('max_candidate_pairs')}",
             f"  seed             : {config.get('seed')}",
-            "",
-            "Split sizes:",
         ]
     )
+    candidate_generation = stats.get("candidate_generation")
+    candidate_warning = bool(
+        candidate_generation
+        and (
+            candidate_generation["candidate_limit_reached"]
+            or candidate_generation["oversized_lsh_buckets_sampled"]
+        )
+    )
+    if candidate_generation:
+        lines.extend(
+            [
+                "",
+                "Candidate generation:",
+                f"  pairs considered : {candidate_generation['candidate_pairs_considered']}",
+                f"  pairs verified   : {candidate_generation['candidate_pairs_verified']}",
+                f"  dense buckets sampled: {candidate_generation['oversized_lsh_buckets_sampled']}",
+            ]
+        )
+        if candidate_generation["candidate_limit_reached"]:
+            lines.append(
+                "  WARNING: candidate-pair limit reached; this split may contain "
+                "unmerged similar sequences."
+            )
+        elif candidate_generation["oversized_lsh_buckets_sampled"]:
+            lines.append(
+                "  WARNING: dense LSH buckets were sampled; candidate recall is reduced."
+            )
+    lines.extend(["", "Split sizes:"])
     for name, count in stats["sizes"].items():
         lines.append(f"  {name:<6s}: {count:>6d}")
     lines.append("")
@@ -273,7 +300,11 @@ def build_report(stats: dict, mode: str) -> str:
         if len(stats["ood_warnings"]) > 20:
             lines.append(f"  ... ({len(stats['ood_warnings']) - 20} more)")
         lines.append("")
-    if not stats.get("homology_warnings") and not stats.get("ood_warnings"):
+    if (
+        not stats.get("homology_warnings")
+        and not stats.get("ood_warnings")
+        and not candidate_warning
+    ):
         lines.append(
             "No heuristic warnings; this is not a guarantee of leakage-free splits."
         )

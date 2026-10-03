@@ -6,7 +6,9 @@ import numpy as np
 
 from cerberos_peptide_splitter.kmers import jaccard
 from cerberos_peptide_splitter.minhash import (
+    CandidateStreamStats,
     estimate_jaccard,
+    iter_lsh_candidates,
     lsh_candidates,
     minhash_sketch,
 )
@@ -79,6 +81,33 @@ def test_lsh_singletons_no_pairs():
     sketches = np.array([minhash_sketch({"AA"}, 16, 0), minhash_sketch({"ZZ"}, 16, 0)])
     pairs = lsh_candidates(sketches, 16, rows=4)
     assert pairs == set()
+
+
+def test_streaming_lsh_is_deterministic_and_caps_dense_buckets():
+    sketches = np.zeros((256, 16), dtype=np.int64)
+    stats_a = CandidateStreamStats()
+    stats_b = CandidateStreamStats()
+    kwargs = dict(
+        num_hashes=16,
+        rows=4,
+        max_pairs=50,
+        max_bucket_size=16,
+        max_bucket_neighbors=4,
+        seed=19,
+    )
+    pairs_a = list(iter_lsh_candidates(sketches, stats=stats_a, **kwargs))
+    pairs_b = list(iter_lsh_candidates(sketches, stats=stats_b, **kwargs))
+    assert pairs_a == pairs_b
+    assert len(pairs_a) == 50
+    assert stats_a.emitted_pair_count == 50
+    assert stats_a.limit_reached
+    assert stats_a.sampled_bucket_count == 4
+
+
+def test_streaming_lsh_small_buckets_keeps_all_pairs():
+    sketches = np.zeros((4, 16), dtype=np.int64)
+    pairs = set(iter_lsh_candidates(sketches, 16, rows=4, max_pairs=20))
+    assert pairs == {(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)}
 
 
 # ─────────────────────── estimate_jaccard ───────────────────────

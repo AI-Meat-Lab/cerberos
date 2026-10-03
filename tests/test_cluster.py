@@ -233,3 +233,26 @@ def test_short_sequences_without_kmers_do_not_cluster_as_identical():
     cfg = make_cfg(kmer_sizes=[3], similarity_threshold=0.0)
     clusters = compute_homology_clusters(records, cfg, verbose=False)
     assert len(clusters) == 2
+
+
+def test_exact_duplicates_are_collapsed_before_candidate_generation():
+    records = [(f"p{i}", None, "ACDEFGHIKLMNPQ") for i in range(400)]
+    cfg = make_cfg(max_candidate_pairs=10)
+    clusters = compute_homology_clusters(records, cfg, verbose=False)
+    assert clusters == [list(range(400))]
+    assert cfg.last_clustering_stats["duplicate_sequences_collapsed"] == 399
+    assert cfg.last_clustering_stats["candidate_pairs_considered"] == 0
+
+
+def test_candidate_pair_budget_is_reported_when_reached(monkeypatch):
+    from cerberos_peptide_splitter import cluster as cluster_module
+
+    def one_candidate(*args, **kwargs):
+        yield 0, 1
+
+    monkeypatch.setattr(cluster_module, "iter_lsh_candidates", one_candidate)
+    records = [("a", None, "ACDEFGHIKLMNPQ"), ("b", None, "ACDEFGIKLMNPQ")]
+    cfg = make_cfg(max_candidate_pairs=1)
+    compute_homology_clusters(records, cfg, verbose=False)
+    assert cfg.last_clustering_stats["candidate_pairs_considered"] <= 1
+    assert cfg.last_clustering_stats["candidate_limit_reached"]

@@ -39,6 +39,7 @@ def test_split_help():
     r = run_cli("split", "--help")
     assert r.returncode == 0
     assert "--input" in r.stdout
+    assert "--max-candidate-pairs" in r.stdout
 
 
 def test_audit_help():
@@ -70,6 +71,7 @@ def test_split_end_to_end(tmp_path, sample_labeled_fasta_path):
         assert (out / f).exists(), f"missing {f}"
     stats = json.loads((out / "stats.json").read_text())
     assert stats["sizes"]["train"] > 0
+    assert stats["candidate_generation"]["candidate_pair_limit"] == 250_000
 
 
 def test_split_path_a(tmp_path, sample_labeled_fasta_path):

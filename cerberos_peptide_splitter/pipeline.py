@@ -52,6 +52,8 @@ def _write_outputs(
             _log(f"wrote {len(recs):>6d} -> {path}")
 
     stats, _ = summarize(splits, config, kmer_k=config.kmer_sizes[0])
+    if mode == "split" and config.last_clustering_stats:
+        stats["candidate_generation"] = dict(config.last_clustering_stats)
     with open(os.path.join(output_dir, "stats.json"), "w") as fh:
         json.dump(stats, fh, indent=2, allow_nan=False)
         fh.write("\n")
