@@ -5,14 +5,19 @@ from __future__ import annotations
 import itertools
 import random
 from collections import Counter, defaultdict
-from typing import List, Sequence, Tuple
+from typing import Iterator, List, Sequence, Tuple
 
 import numpy as np
 
 from .alphabet import apply_reduced_alphabet
 from .config import RunConfig
 from .kmers import exact_kmer_jaccard, kmers
-from .minhash import CandidateStreamStats, estimate_jaccard, iter_lsh_candidates, minhash_sketch
+from .minhash import (
+    CandidateStreamStats,
+    estimate_jaccard,
+    iter_lsh_candidates,
+    minhash_sketch,
+)
 from .verify import verify_pair
 
 
@@ -62,7 +67,9 @@ def _otsu_threshold(values: Sequence[float], fallback: float) -> float:
     return float(np.clip(centers[int(np.argmax(variance))], 0.0, 1.0))
 
 
-def _label_propagation(n: int, edges: set[tuple[int, int]], seed: int) -> List[List[int]]:
+def _label_propagation(
+    n: int, edges: set[tuple[int, int]], seed: int
+) -> List[List[int]]:
     """Deterministic lightweight community detection for sparse accepted graphs."""
     neighbors = defaultdict(set)
     for left, right in edges:
@@ -134,9 +141,17 @@ def compute_homology_clusters(
     transformed = [
         apply_reduced_alphabet(record[2], config.reduced_alphabet) for record in records
     ]
-    short_count = sum(len(sequence) < min(config.kmer_sizes) for sequence in transformed)
-    if short_count and config.short_peptide_mode == "auto" and config.reduced_alphabet == "none":
-        transformed = [apply_reduced_alphabet(record[2], "groups5") for record in records]
+    short_count = sum(
+        len(sequence) < min(config.kmer_sizes) for sequence in transformed
+    )
+    if (
+        short_count
+        and config.short_peptide_mode == "auto"
+        and config.reduced_alphabet == "none"
+    ):
+        transformed = [
+            apply_reduced_alphabet(record[2], "groups5") for record in records
+        ]
     if verbose and short_count and config.short_peptide_mode == "warn":
         print(
             f"[cerberos] WARNING: {short_count} sequences are shorter than the smallest k-mer; "
@@ -170,8 +185,6 @@ def compute_homology_clusters(
     rejected_values = []
     threshold = config.similarity_threshold
     rows_used = []
-    budget_units = max(1, len(config.kmer_sizes) * len(config.lsh_rows))
-
     for k_position, k in enumerate(config.kmer_sizes):
         active = [index for index in representatives if len(transformed[index]) >= k]
         if len(active) < 2:
@@ -193,19 +206,20 @@ def compute_homology_clusters(
         remaining_budget = config.max_candidate_pairs - total_candidates
         if remaining_budget <= 0:
             break
-        k_budget = max(1, remaining_budget // max(1, len(config.kmer_sizes) - k_position))
+        k_budget = max(
+            1, remaining_budget // max(1, len(config.kmer_sizes) - k_position)
+        )
         if use_exact:
-            candidate_iter = itertools.combinations(range(len(active)), 2)
             rows_for_k = [0]
         else:
-            candidate_iter = None
             rows_for_k = config.lsh_rows
         per_config_budget = max(1, k_budget // max(1, len(rows_for_k)))
         for row_position, rows in enumerate(rows_for_k):
             rows_used.append(rows)
             stream_stats = CandidateStreamStats()
+            pairs: Iterator[tuple[int, int]]
             if use_exact:
-                pairs = candidate_iter
+                pairs = itertools.combinations(range(len(active)), 2)
             else:
                 pairs = iter_lsh_candidates(
                     sketches,
@@ -225,7 +239,9 @@ def compute_homology_clusters(
                 candidate_pairs_seen.add(pair)
                 total_candidates += 1
                 if use_exact:
-                    estimate = exact_kmer_jaccard(transformed[index_a], transformed[index_b], k)
+                    estimate = exact_kmer_jaccard(
+                        transformed[index_a], transformed[index_b], k
+                    )
                 else:
                     estimate = estimate_jaccard(sketches[local_i], sketches[local_j])
                 score = estimate
@@ -236,9 +252,12 @@ def compute_homology_clusters(
                     if union_find.find(index_a) == union_find.find(index_b):
                         continue
                     score = verify_pair(
-                        raw_a=records[index_a][2], raw_b=records[index_b][2],
-                        transformed_a=transformed[index_a], transformed_b=transformed[index_b],
-                        kmer_sizes=config.kmer_sizes, metric=config.verify_with,
+                        raw_a=records[index_a][2],
+                        raw_b=records[index_b][2],
+                        transformed_a=transformed[index_a],
+                        transformed_b=transformed[index_b],
+                        kmer_sizes=config.kmer_sizes,
+                        metric=config.verify_with,
                         threshold=threshold,
                     )
                     verified += 1
@@ -270,7 +289,9 @@ def compute_homology_clusters(
             groups[union_find.find(index)].append(index)
         clusters = list(groups.values())
     cluster_size_distribution = Counter(str(len(cluster)) for cluster in clusters)
-    non_singleton_sequences = sum(len(cluster) for cluster in clusters if len(cluster) > 1)
+    non_singleton_sequences = sum(
+        len(cluster) for cluster in clusters if len(cluster) > 1
+    )
     config.last_cluster_assignments = [0] * count
     for cluster_id, cluster in enumerate(clusters):
         for index in cluster:
@@ -288,16 +309,28 @@ def compute_homology_clusters(
         "candidate_limit_reached": limit_reached,
         "lsh_rows_per_band": sorted(set(rows_used)),
         "lsh_configurations": len(rows_used),
-        "exact_mode": bool(config.exact_mode and len(representatives) <= config.exact_mode_max_sequences),
+        "exact_mode": bool(
+            config.exact_mode
+            and len(representatives) <= config.exact_mode_max_sequences
+        ),
         "short_sequences": short_count,
         "short_peptide_mode": config.short_peptide_mode,
         "adaptive_threshold": config.adaptive_threshold,
         "effective_similarity_threshold": threshold,
         "candidate_recall_benchmark": _benchmark_recall(
-            records, transformed, candidate_pairs_seen, threshold, config.kmer_sizes, config.seed
+            records,
+            transformed,
+            candidate_pairs_seen,
+            threshold,
+            config.kmer_sizes,
+            config.seed,
         ),
-        "accepted_score_histogram": np.histogram(score_values, bins=20, range=(0, 1))[0].tolist(),
-        "rejected_score_histogram": np.histogram(rejected_values, bins=20, range=(0, 1))[0].tolist(),
+        "accepted_score_histogram": np.histogram(score_values, bins=20, range=(0, 1))[
+            0
+        ].tolist(),
+        "rejected_score_histogram": np.histogram(
+            rejected_values, bins=20, range=(0, 1)
+        )[0].tolist(),
         "cluster_method": config.cluster_method,
         "cluster_count": len(clusters),
         "singleton_count": sum(len(cluster) == 1 for cluster in clusters),

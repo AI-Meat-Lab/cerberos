@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .config import RunConfig
-from .diagnostics import _nearest_neighbor_similarity
+from .kmers import exact_kmer_jaccard
 
 
 def cross_validation_assignments(
@@ -20,12 +20,14 @@ def cross_validation_assignments(
         raise ValueError("folds must be at least 2")
     flattened = [index for cluster in clusters for index in cluster]
     if len(flattened) != n or set(flattened) != set(range(n)):
-        raise ValueError("clusters must partition all indices from 0 to n-1 exactly once")
+        raise ValueError(
+            "clusters must partition all indices from 0 to n-1 exactly once"
+        )
     ordered = list(clusters)
     random.Random(seed).shuffle(ordered)
     ordered.sort(key=len, reverse=True)
     fold_sizes = [0] * folds
-    fold_clusters = [[] for _ in range(folds)]
+    fold_clusters: list[list[Sequence[int]]] = [[] for _ in range(folds)]
     for cluster in ordered:
         fold = min(range(folds), key=lambda index: (fold_sizes[index], index))
         fold_clusters[fold].append(cluster)
@@ -46,7 +48,7 @@ def hierarchical_cluster_views(records, config: RunConfig, thresholds: Sequence[
     from .cluster import compute_homology_clusters
 
     views = {}
-    for threshold in sorted(set(float(value) for value in thresholds), reverse=True):
+    for threshold in sorted({float(value) for value in thresholds}, reverse=True):
         options = config.as_dict()
         options["prefilter_threshold"] = config.prefilter_threshold
         options["similarity_threshold"] = threshold
@@ -63,10 +65,19 @@ def boundary_records(splits, k: int, threshold: float = 0.7) -> list[dict]:
         for record in splits.get(split, []):
             if not train:
                 continue
-            scores = [(max(_nearest_neighbor_similarity([record], [ref], k)["values"], default=0.0), ref[0]) for ref in train]
+            scores = [
+                (exact_kmer_jaccard(record[2], ref[2], k), ref[0]) for ref in train
+            ]
             score, nearest_id = max(scores)
             if abs(score - threshold) <= 0.10:
-                results.append({"id": record[0], "split": split, "nearest_train_id": nearest_id, "similarity": score})
+                results.append(
+                    {
+                        "id": record[0],
+                        "split": split,
+                        "nearest_train_id": nearest_id,
+                        "similarity": score,
+                    }
+                )
     return sorted(results, key=lambda item: (-item["similarity"], item["id"]))
 
 
@@ -81,8 +92,10 @@ def load_cluster_assignments(path: str, n: int) -> list[list[int]]:
             rows = csv.DictReader(handle)
             mapping = {int(row["index"]): int(row["cluster"]) for row in rows}
     if set(mapping) != set(range(n)):
-        raise ValueError("external cluster mapping must contain every record index exactly once")
-    groups = {}
+        raise ValueError(
+            "external cluster mapping must contain every record index exactly once"
+        )
+    groups: dict[int, list[int]] = {}
     for index, cluster in mapping.items():
         groups.setdefault(cluster, []).append(index)
     return [groups[key] for key in sorted(groups)]

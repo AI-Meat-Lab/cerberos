@@ -98,7 +98,11 @@ def assign_clusters(
             "clusters must partition all indices from 0 to n-1 exactly once"
         )
     targets = dict(
-        zip(_SPLITS, (config.train_pct * n, config.val_pct * n, config.test_pct * n))
+        zip(
+            _SPLITS,
+            (config.train_pct * n, config.val_pct * n, config.test_pct * n),
+            strict=True,
+        )
     )
     counts = dict.fromkeys(_SPLITS, 0)
     shuffled = list(clusters)
@@ -119,10 +123,13 @@ def assign_clusters(
     total_positive = 0.0
     label_data = {}
     if config.stratify_labels and records is not None:
-        total_positive = sum(record[1] == 1 for record in records if record[1] is not None)
+        total_positive = sum(
+            record[1] == 1 for record in records if record[1] is not None
+        )
         for cluster in clusters:
             label_data[id(cluster)] = sum(
-                record[1] == 1 for index, record in enumerate(records)
+                record[1] == 1
+                for index, record in enumerate(records)
                 if index in cluster and record[1] is not None
             )
     objective_total = 0.0
@@ -134,8 +141,7 @@ def assign_clusters(
         for name in _SPLITS:
             new_count = counts[name] + size
             size_cost = (
-                abs(new_count - targets[name])
-                - abs(counts[name] - targets[name])
+                abs(new_count - targets[name]) - abs(counts[name] - targets[name])
             ) / max(1.0, n)
             composition_cost = 0.0
             if global_mean.size:
@@ -145,11 +151,21 @@ def assign_clusters(
                 )
             label_cost = 0.0
             if config.stratify_labels and total_positive and new_count:
-                target_positive = config.train_pct * total_positive if name == "train" else (
-                    config.val_pct * total_positive if name == "val" else config.test_pct * total_positive
+                target_positive = (
+                    config.train_pct * total_positive
+                    if name == "train"
+                    else (
+                        config.val_pct * total_positive
+                        if name == "val"
+                        else config.test_pct * total_positive
+                    )
                 )
-                label_cost = abs(label_sums[name] + label_data.get(id(cluster), 0) - target_positive) / max(1.0, n)
-            costs[name] = size_cost + config.balance_weight * composition_cost + label_cost
+                label_cost = abs(
+                    label_sums[name] + label_data.get(id(cluster), 0) - target_positive
+                ) / max(1.0, n)
+            costs[name] = (
+                size_cost + config.balance_weight * composition_cost + label_cost
+            )
         best_split = min(
             _SPLITS,
             key=lambda name: (costs[name], _SPLITS.index(name)),
@@ -169,15 +185,28 @@ def assign_clusters(
             name = current[id(cluster)]
             counts_local[name] += len(cluster)
             if global_mean.size:
-                sums_local[name] += feature_data.get(id(cluster), np.zeros_like(global_mean))
+                sums_local[name] += feature_data.get(
+                    id(cluster), np.zeros_like(global_mean)
+                )
         value = sum(
-            abs(counts_local[name] - targets[name]) / max(1.0, n)
-            for name in _SPLITS
+            abs(counts_local[name] - targets[name]) / max(1.0, n) for name in _SPLITS
         )
         if global_mean.size:
             value += config.balance_weight * sum(
-                float(np.mean(((sums_local[name] / max(1, counts_local[name]) - global_mean) / scales) ** 2))
-                for name in _SPLITS if counts_local[name]
+                float(
+                    np.mean(
+                        (
+                            (
+                                sums_local[name] / max(1, counts_local[name])
+                                - global_mean
+                            )
+                            / scales
+                        )
+                        ** 2
+                    )
+                )
+                for name in _SPLITS
+                if counts_local[name]
             )
         return value
 
@@ -190,25 +219,33 @@ def assign_clusters(
                 for right in clusters[left_index + 1 :]:
                     if current[id(left)] == current[id(right)]:
                         continue
-                    current[id(left)], current[id(right)] = current[id(right)], current[id(left)]
+                    current[id(left)], current[id(right)] = (
+                        current[id(right)],
+                        current[id(left)],
+                    )
                     after = objective(current)
                     if after + 1e-12 < before:
                         improved = True
                         before = after
                     else:
-                        current[id(left)], current[id(right)] = current[id(right)], current[id(left)]
+                        current[id(left)], current[id(right)] = (
+                            current[id(right)],
+                            current[id(left)],
+                        )
             if not improved:
                 break
         for cluster in clusters:
             assignment.update(dict.fromkeys(cluster, current[id(cluster)]))
 
     config.last_assignment_stats = {
-        "method": "balanced-greedy" if config.balance and records is not None else "size-greedy",
+        "method": (
+            "balanced-greedy"
+            if config.balance and records is not None
+            else "size-greedy"
+        ),
         "target_sizes": {name: targets[name] for name in _SPLITS},
         "observed_sizes": counts,
-        "size_errors": {
-            name: counts[name] - targets[name] for name in _SPLITS
-        },
+        "size_errors": {name: counts[name] - targets[name] for name in _SPLITS},
         "balance_weight": config.balance_weight if config.balance else 0.0,
         "feature_names": feature_names,
         "objective": float(objective_total),
@@ -217,16 +254,18 @@ def assign_clusters(
     }
     if global_mean.size:
         config.last_assignment_stats["feature_mean_abs_error"] = {
-            name: float(
-                np.mean(
-                    np.abs(
-                        (feature_sums[name] / max(1, counts[name]) - global_mean)
-                        / scales
+            name: (
+                float(
+                    np.mean(
+                        np.abs(
+                            (feature_sums[name] / max(1, counts[name]) - global_mean)
+                            / scales
+                        )
                     )
                 )
+                if counts[name]
+                else None
             )
-            if counts[name]
-            else None
             for name in _SPLITS
         }
     if config.pareto_points > 1:
@@ -273,7 +312,9 @@ def split_records(
 
     if config.no_clustering:
         if config.strict_clustering:
-            raise ValueError("--strict-clustering cannot be combined with --no-clustering")
+            raise ValueError(
+                "--strict-clustering cannot be combined with --no-clustering"
+            )
         assignment = stratified_random_split(records, config)
         config.last_clustering_stats = {
             "input_sequences": len(records),

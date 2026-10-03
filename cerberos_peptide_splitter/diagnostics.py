@@ -129,9 +129,17 @@ def _nearest_neighbor_similarity(
 ) -> Dict[str, object]:
     """Return the exact-k-mer similarity distribution to the nearest reference."""
     if not query_records or not reference_records:
-        return {"n_queries": len(query_records), "mean": None, "max": None, "values": []}
+        return {
+            "n_queries": len(query_records),
+            "mean": None,
+            "max": None,
+            "values": [],
+        }
     values = [
-        max(exact_kmer_jaccard(query[2], reference[2], k) for reference in reference_records)
+        max(
+            exact_kmer_jaccard(query[2], reference[2], k)
+            for reference in reference_records
+        )
         for query in query_records
     ]
     return {
@@ -150,7 +158,8 @@ def _feature_balance_against_overall(splits: Dict[str, list], feature_names: Lis
     output = {}
     for split, records in splits.items():
         matrix = build_feature_matrix(records)[0]
-        ks_values, wasserstein_values = [], []
+        ks_values: list[float | None] = []
+        wasserstein_values: list[float | None] = []
         for index in range(len(feature_names)):
             if matrix.shape[0] == 0 or overall.shape[0] == 0:
                 ks_values.append(None)
@@ -173,17 +182,25 @@ def _cluster_quality(matrix, labels, max_n=1000):
         indices = np.linspace(0, len(matrix) - 1, max_n, dtype=int)
         matrix, labels = matrix[indices], labels[indices]
     unique = sorted(set(labels.tolist()))
-    distances = np.sqrt(np.maximum(0.0, ((matrix[:, None, :] - matrix[None, :, :]) ** 2).sum(axis=2)))
+    distances = np.sqrt(
+        np.maximum(0.0, ((matrix[:, None, :] - matrix[None, :, :]) ** 2).sum(axis=2))
+    )
     centroids, scatters = {}, {}
     for label in unique:
         members = matrix[labels == label]
         centroids[label] = members.mean(axis=0)
-        scatters[label] = float(np.mean(np.linalg.norm(members - centroids[label], axis=1)))
+        scatters[label] = float(
+            np.mean(np.linalg.norm(members - centroids[label], axis=1))
+        )
     silhouettes = []
     for index, label in enumerate(labels):
         own = labels == label
         a = float(distances[index, own].sum() / max(1, own.sum() - 1))
-        other_means = [float(distances[index, labels == other].mean()) for other in unique if other != label]
+        other_means = [
+            float(distances[index, labels == other].mean())
+            for other in unique
+            if other != label
+        ]
         b = min(other_means) if other_means else 0.0
         silhouettes.append((b - a) / max(a, b, 1e-12))
     db_terms = []
@@ -192,25 +209,48 @@ def _cluster_quality(matrix, labels, max_n=1000):
         for right in unique:
             if left != right:
                 separation = np.linalg.norm(centroids[left] - centroids[right])
-                ratios.append((scatters[left] + scatters[right]) / max(separation, 1e-12))
+                ratios.append(
+                    (scatters[left] + scatters[right]) / max(separation, 1e-12)
+                )
         db_terms.append(max(ratios) if ratios else 0.0)
     overall = matrix.mean(axis=0)
-    between = sum(np.sum(labels == label) * np.sum((centroids[label] - overall) ** 2) for label in unique)
-    within = sum(np.sum((matrix[labels == label] - centroids[label]) ** 2) for label in unique)
-    ch = between / max(within, 1e-12) * (len(matrix) - len(unique)) / max(1, len(unique) - 1)
-    return {"silhouette": float(np.mean(silhouettes)), "davies_bouldin": float(np.mean(db_terms)), "calinski_harabasz": float(ch)}
+    between = sum(
+        np.sum(labels == label) * np.sum((centroids[label] - overall) ** 2)
+        for label in unique
+    )
+    within = sum(
+        np.sum((matrix[labels == label] - centroids[label]) ** 2) for label in unique
+    )
+    ch = (
+        between
+        / max(within, 1e-12)
+        * (len(matrix) - len(unique))
+        / max(1, len(unique) - 1)
+    )
+    return {
+        "silhouette": float(np.mean(silhouettes)),
+        "davies_bouldin": float(np.mean(db_terms)),
+        "calinski_harabasz": float(ch),
+    }
 
 
 def _size_confidence_intervals(sizes, config):
     total = sum(sizes.values())
     output = {}
-    for name, proportion in zip(("train", "val", "test"), (config.train_pct, config.val_pct, config.test_pct)):
+    for name, proportion in zip(
+        ("train", "val", "test"),
+        (config.train_pct, config.val_pct, config.test_pct),
+        strict=True,
+    ):
         standard_error = (proportion * (1 - proportion) / max(1, total)) ** 0.5
         output[name] = {
             "observed": sizes.get(name, 0),
             "target_proportion": proportion,
             "expected": proportion * total,
-            "random_assignment_95ci_proportion": [max(0.0, proportion - 1.96 * standard_error), min(1.0, proportion + 1.96 * standard_error)],
+            "random_assignment_95ci_proportion": [
+                max(0.0, proportion - 1.96 * standard_error),
+                min(1.0, proportion + 1.96 * standard_error),
+            ],
         }
     return output
 
@@ -309,7 +349,9 @@ def summarize(
             splits.get("val", []), splits.get("train", []), kmer_k
         ),
     }
-    stats["size_confidence_intervals"] = _size_confidence_intervals(stats["sizes"], config)
+    stats["size_confidence_intervals"] = _size_confidence_intervals(
+        stats["sizes"], config
+    )
     stats["cluster_quality"] = _cluster_quality(
         config.last_cluster_features,
         config.last_cluster_assignments,
@@ -395,7 +437,9 @@ def build_report(stats: dict, mode: str) -> str:
             ]
         )
         if clustering.get("candidate_recall_benchmark") is not None:
-            lines.append(f"  exact benchmark recall: {clustering['candidate_recall_benchmark']:.3f}")
+            lines.append(
+                f"  exact benchmark recall: {clustering['candidate_recall_benchmark']:.3f}"
+            )
         lines.append(
             "  accepted/rejected score histograms: "
             f"{clustering.get('accepted_score_histogram', [])} / "

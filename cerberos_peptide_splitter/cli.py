@@ -13,7 +13,9 @@ def _parse_csv_ints(value: str, label: str) -> list[int]:
     try:
         values = [int(item.strip()) for item in value.split(",") if item.strip()]
     except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"{label} must be comma-separated integers") from exc
+        raise argparse.ArgumentTypeError(
+            f"{label} must be comma-separated integers"
+        ) from exc
     if not values or any(value < 1 for value in values):
         raise argparse.ArgumentTypeError(f"{label} must contain positive integers")
     return values
@@ -38,7 +40,9 @@ def _add_clustering(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--kmer-sizes", type=_parse_kmer_sizes, default=[3])
     parser.add_argument("--num-hashes", type=int, default=128)
     parser.add_argument("--max-candidate-pairs", type=int, default=250_000)
-    parser.add_argument("--reduced-alphabet", choices=["none", "groups5", "groups7"], default="none")
+    parser.add_argument(
+        "--reduced-alphabet", choices=["none", "groups5", "groups7"], default="none"
+    )
     parser.add_argument(
         "--verify-with",
         choices=["none", "kmer-exact", "levenshtein", "containment", "cosine"],
@@ -49,12 +53,22 @@ def _add_clustering(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--min-non-singleton-fraction", type=float, default=0.05)
     parser.add_argument("--balance", action="store_true")
     parser.add_argument("--balance-weight", type=float, default=1.0)
-    parser.add_argument("--lsh-rows", type=lambda value: _parse_csv_ints(value, "LSH rows"), default=[2, 4, 8])
+    parser.add_argument(
+        "--lsh-rows",
+        type=lambda value: _parse_csv_ints(value, "LSH rows"),
+        default=[2, 4, 8],
+    )
     parser.add_argument("--exact-mode", action="store_true")
     parser.add_argument("--exact-mode-max-sequences", type=int, default=50_000)
     parser.add_argument("--adaptive-threshold", action="store_true")
-    parser.add_argument("--cluster-method", choices=["components", "label-propagation"], default="components")
-    parser.add_argument("--short-peptide-mode", choices=["ignore", "warn", "auto"], default="warn")
+    parser.add_argument(
+        "--cluster-method",
+        choices=["components", "label-propagation"],
+        default="components",
+    )
+    parser.add_argument(
+        "--short-peptide-mode", choices=["ignore", "warn", "auto"], default="warn"
+    )
     parser.add_argument("--local-search-iterations", type=int, default=0)
     parser.add_argument("--stratify-labels", action="store_true")
     parser.add_argument("--pareto-points", type=int, default=0)

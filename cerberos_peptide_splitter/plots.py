@@ -123,7 +123,9 @@ def _pca(splits, path, k=3, max_n=1000, max_features=512, seed=0, cluster_labels
         for record in records:
             seqs.append(record[2])
             labels.append(split_name)
-            cluster_ids.append(None if cluster_labels is None else cluster_labels.get(record[0]))
+            cluster_ids.append(
+                None if cluster_labels is None else cluster_labels.get(record[0])
+            )
     if len(seqs) < 2:
         return
     if len(seqs) > max_n:
@@ -154,19 +156,35 @@ def _pca(splits, path, k=3, max_n=1000, max_features=512, seed=0, cluster_labels
     projection = left[:, :2] * singular_values[:2]
     fig, ax = plt.subplots(figsize=(6.5, 5.5))
     if cluster_labels is not None and any(value is not None for value in cluster_ids):
-        unique = sorted(set(value for value in cluster_ids if value is not None))
+        unique = sorted({value for value in cluster_ids if value is not None})
         palette = plt.cm.tab20(np.linspace(0, 1, max(1, len(unique))))
         for index, cluster_id in enumerate(unique):
             mask = np.array([value == cluster_id for value in cluster_ids])
-            ax.scatter(projection[mask, 0], projection[mask, 1], s=10, alpha=0.55, color=palette[index], label=f"cluster {cluster_id}")
+            ax.scatter(
+                projection[mask, 0],
+                projection[mask, 1],
+                s=10,
+                alpha=0.55,
+                color=palette[index],
+                label=f"cluster {cluster_id}",
+            )
         ax.set_title(f"PCA of full/sample k-mer profiles colored by cluster (k={k})")
     else:
         colors = {"train": "#4C72B0", "val": "#DD8452", "test": "#55A868"}
         for split_name in splits:
             mask = np.array([name == split_name for name in labels])
             if mask.any():
-                ax.scatter(projection[mask, 0], projection[mask, 1], s=10, alpha=0.55, c=colors.get(split_name, "gray"), label=f"{split_name} (n={mask.sum()})")
-        ax.set_title(f"PCA of sampled {k}-mer profiles by split (top {len(vocabulary)} k-mers)")
+                ax.scatter(
+                    projection[mask, 0],
+                    projection[mask, 1],
+                    s=10,
+                    alpha=0.55,
+                    c=colors.get(split_name, "gray"),
+                    label=f"{split_name} (n={mask.sum()})",
+                )
+        ax.set_title(
+            f"PCA of sampled {k}-mer profiles by split (top {len(vocabulary)} k-mers)"
+        )
     ax.set_xlabel("PC1")
     ax.set_ylabel("PC2")
     ax.set_title(f"PCA of sampled {k}-mer profiles (top {len(vocabulary)} k-mers)")
@@ -250,7 +268,9 @@ def _label_balance(splits, path):
     return True
 
 
-def make_plots(splits: Dict[str, list], output_dir: str, kmer_k: int = 3, cluster_labels=None) -> None:
+def make_plots(
+    splits: Dict[str, list], output_dir: str, kmer_k: int = 3, cluster_labels=None
+) -> None:
     import os
 
     plt = _mpl()
@@ -262,5 +282,10 @@ def make_plots(splits: Dict[str, list], output_dir: str, kmer_k: int = 3, cluste
     _label_balance(splits, os.path.join(p, "label_balance.png"))
     _hist_lengths(splits, os.path.join(p, "length_distribution.png"))
     _boxplots(splits, os.path.join(p, "biochem_boxplots.png"))
-    _pca(splits, os.path.join(p, "pca_projection.png"), k=kmer_k, cluster_labels=cluster_labels)
+    _pca(
+        splits,
+        os.path.join(p, "pca_projection.png"),
+        k=kmer_k,
+        cluster_labels=cluster_labels,
+    )
     _similarity_hist(splits, os.path.join(p, "pairwise_similarity.png"), k=kmer_k)

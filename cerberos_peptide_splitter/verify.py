@@ -82,12 +82,18 @@ def verify_pair(
     if metric == "kmer-exact":
         if not kmer_sizes:
             raise ValueError("kmer_sizes must not be empty")
-        return max(exact_kmer_jaccard(transformed_a, transformed_b, k) for k in kmer_sizes)
+        return max(
+            exact_kmer_jaccard(transformed_a, transformed_b, k) for k in kmer_sizes
+        )
     if metric in ("containment", "cosine"):
         scores = []
         for k in kmer_sizes:
             left, right = kmers(transformed_a, k), kmers(transformed_b, k)
-            scores.append(_containment(left, right) if metric == "containment" else _cosine(left, right))
+            scores.append(
+                _containment(left, right)
+                if metric == "containment"
+                else _cosine(left, right)
+            )
         return max(scores, default=0.0)
     if metric == "levenshtein":
         max_length = max(len(raw_a), len(raw_b))

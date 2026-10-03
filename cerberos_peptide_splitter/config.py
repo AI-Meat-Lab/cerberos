@@ -45,8 +45,12 @@ class RunConfig:
     diagnostics_sample_size: int = 1000
     last_clustering_stats: dict = field(default_factory=dict, init=False, repr=False)
     last_assignment_stats: dict = field(default_factory=dict, init=False, repr=False)
-    last_cluster_assignments: List[int] = field(default_factory=list, init=False, repr=False)
-    last_cluster_by_record_id: dict = field(default_factory=dict, init=False, repr=False)
+    last_cluster_assignments: List[int] = field(
+        default_factory=list, init=False, repr=False
+    )
+    last_cluster_by_record_id: dict = field(
+        default_factory=dict, init=False, repr=False
+    )
     last_cluster_features: object = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -97,7 +101,10 @@ class RunConfig:
                 or not 0.0 <= value <= 1.0
             ):
                 raise ValueError(f"{name} must be finite and between 0 and 1")
-        if self.verify_with != "none" and self.prefilter_threshold > self.similarity_threshold:
+        if (
+            self.verify_with != "none"
+            and self.prefilter_threshold > self.similarity_threshold
+        ):
             raise ValueError(
                 "prefilter_threshold must not exceed similarity_threshold when verification is enabled"
             )
@@ -141,7 +148,9 @@ class RunConfig:
             "similarity_threshold": self.similarity_threshold,
             "reduced_alphabet": self.reduced_alphabet,
             "verify_with": self.verify_with,
-            "prefilter_threshold": self.prefilter_threshold if self.verify_with != "none" else None,
+            "prefilter_threshold": (
+                self.prefilter_threshold if self.verify_with != "none" else None
+            ),
             "seed": self.seed,
             "no_clustering": self.no_clustering,
             "max_candidate_pairs": self.max_candidate_pairs,
