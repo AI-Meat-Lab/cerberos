@@ -4,16 +4,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from .kmers import exact_kmer_jaccard
+from .kmers import exact_kmer_jaccard, kmers
 
 
 def levenshtein(a: str, b: str, max_dist: Optional[int] = None) -> int:
-    """Return unit-cost global Levenshtein edit distance.
-
-    With ``max_dist``, dynamic programming is restricted to the diagonal band
-    and returns ``max_dist + 1`` if the true distance exceeds the bound. This
-    is global edit distance, not alignment-based percent identity.
-    """
+    """Return unit-cost global Levenshtein edit distance."""
     if max_dist is not None and (
         isinstance(max_dist, bool) or not isinstance(max_dist, int) or max_dist < 0
     ):
@@ -24,7 +19,6 @@ def levenshtein(a: str, b: str, max_dist: Optional[int] = None) -> int:
         return max_dist + 1
     if not b:
         return len(a)
-
     infinity = max_dist + 1 if max_dist is not None else len(a) + len(b)
     previous = list(range(len(b) + 1))
     if max_dist is not None:
@@ -53,11 +47,7 @@ def levenshtein(a: str, b: str, max_dist: Optional[int] = None) -> int:
 
 
 def levenshtein_identity(a: str, b: str, max_dist: Optional[int] = None) -> float:
-    """Return normalized edit similarity ``1 - distance / max_length``.
-
-    The name is retained for compatibility; the score is not alignment-based
-    biological sequence identity. Empty/empty strings receive score 1.0.
-    """
+    """Return normalized edit similarity ``1 - distance / max_length``."""
     distance = levenshtein(a, b, max_dist)
     if not a and not b:
         return 1.0
@@ -65,6 +55,18 @@ def levenshtein_identity(a: str, b: str, max_dist: Optional[int] = None) -> floa
     if max_dist is not None and distance > max_dist:
         return 0.0
     return 1.0 - distance / denominator
+
+
+def _containment(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return max(len(a & b) / len(a), len(a & b) / len(b))
+
+
+def _cosine(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / (len(a) * len(b)) ** 0.5
 
 
 def verify_pair(
@@ -76,13 +78,17 @@ def verify_pair(
     metric: str,
     threshold: float,
 ) -> float:
-    """Score a candidate pair using exact k-mer Jaccard or global edit similarity."""
+    """Score a candidate pair with one deterministic similarity metric."""
     if metric == "kmer-exact":
         if not kmer_sizes:
             raise ValueError("kmer_sizes must not be empty")
-        return max(
-            exact_kmer_jaccard(transformed_a, transformed_b, k) for k in kmer_sizes
-        )
+        return max(exact_kmer_jaccard(transformed_a, transformed_b, k) for k in kmer_sizes)
+    if metric in ("containment", "cosine"):
+        scores = []
+        for k in kmer_sizes:
+            left, right = kmers(transformed_a, k), kmers(transformed_b, k)
+            scores.append(_containment(left, right) if metric == "containment" else _cosine(left, right))
+        return max(scores, default=0.0)
     if metric == "levenshtein":
         max_length = max(len(raw_a), len(raw_b))
         if max_length == 0:

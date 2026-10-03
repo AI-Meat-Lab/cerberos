@@ -7,17 +7,14 @@ from dataclasses import dataclass, field
 from typing import List
 
 VALID_ALPHABETS = ("none", "groups5", "groups7")
-VALID_VERIFIERS = ("none", "kmer-exact", "levenshtein")
+VALID_VERIFIERS = ("none", "kmer-exact", "levenshtein", "containment", "cosine")
+VALID_CLUSTER_METHODS = ("components", "label-propagation")
 _MAX_SEED = 2**32 - 1
 
 
 @dataclass
 class RunConfig:
-    """Options controlling clustering, splitting, and diagnostics.
-
-    Split percentages may use any common scale (for example, ``80, 10, 10``)
-    and are normalized to sum to one. Thresholds and k-mer sizes are validated.
-    """
+    """Options controlling clustering, splitting, balancing, and diagnostics."""
 
     train_pct: float = 0.80
     val_pct: float = 0.10
@@ -31,13 +28,36 @@ class RunConfig:
     seed: int = 42
     no_clustering: bool = False
     max_candidate_pairs: int = 250_000
+    strict_clustering: bool = False
+    min_non_singleton_fraction: float = 0.05
+    balance: bool = False
+    balance_weight: float = 1.0
+    lsh_rows: List[int] = field(default_factory=lambda: [2, 4, 8])
+    exact_mode: bool = False
+    exact_mode_max_sequences: int = 50_000
+    adaptive_threshold: bool = False
+    cluster_method: str = "components"
+    short_peptide_mode: str = "warn"
+    local_search_iterations: int = 0
+    stratify_labels: bool = False
+    pareto_points: int = 0
+    dry_run: bool = False
+    diagnostics_sample_size: int = 1000
     last_clustering_stats: dict = field(default_factory=dict, init=False, repr=False)
+    last_assignment_stats: dict = field(default_factory=dict, init=False, repr=False)
+    last_cluster_assignments: List[int] = field(default_factory=list, init=False, repr=False)
+    last_cluster_by_record_id: dict = field(default_factory=dict, init=False, repr=False)
+    last_cluster_features: object = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.reduced_alphabet not in VALID_ALPHABETS:
             raise ValueError(f"reduced_alphabet must be one of {VALID_ALPHABETS}")
         if self.verify_with not in VALID_VERIFIERS:
             raise ValueError(f"verify_with must be one of {VALID_VERIFIERS}")
+        if self.cluster_method not in VALID_CLUSTER_METHODS:
+            raise ValueError(f"cluster_method must be one of {VALID_CLUSTER_METHODS}")
+        if self.short_peptide_mode not in ("ignore", "warn", "auto"):
+            raise ValueError("short_peptide_mode must be ignore, warn, or auto")
         percentages = (self.train_pct, self.val_pct, self.test_pct)
         if any(
             isinstance(value, bool)
@@ -67,6 +87,8 @@ class RunConfig:
         for name, value in (
             ("similarity_threshold", self.similarity_threshold),
             ("prefilter_threshold", self.prefilter_threshold),
+            ("min_non_singleton_fraction", self.min_non_singleton_fraction),
+            ("balance_weight", self.balance_weight),
         ):
             if (
                 isinstance(value, bool)
@@ -75,24 +97,36 @@ class RunConfig:
                 or not 0.0 <= value <= 1.0
             ):
                 raise ValueError(f"{name} must be finite and between 0 and 1")
-        if (
-            self.verify_with != "none"
-            and self.prefilter_threshold > self.similarity_threshold
-        ):
+        if self.verify_with != "none" and self.prefilter_threshold > self.similarity_threshold:
             raise ValueError(
-                "prefilter_threshold must not exceed similarity_threshold "
-                "when verification is enabled"
+                "prefilter_threshold must not exceed similarity_threshold when verification is enabled"
             )
         if isinstance(self.seed, bool) or not isinstance(self.seed, int):
             raise ValueError("seed must be an integer")
         if not isinstance(self.no_clustering, bool):
             raise ValueError("no_clustering must be a boolean")
-        if (
-            isinstance(self.max_candidate_pairs, bool)
-            or not isinstance(self.max_candidate_pairs, int)
-            or self.max_candidate_pairs < 1
+        if not isinstance(self.strict_clustering, bool):
+            raise ValueError("strict_clustering must be a boolean")
+        if not isinstance(self.balance, bool):
+            raise ValueError("balance must be a boolean")
+        if not isinstance(self.stratify_labels, bool):
+            raise ValueError("stratify_labels must be a boolean")
+        if not isinstance(self.dry_run, bool):
+            raise ValueError("dry_run must be a boolean")
+        for name, value, minimum in (
+            ("max_candidate_pairs", self.max_candidate_pairs, 1),
+            ("exact_mode_max_sequences", self.exact_mode_max_sequences, 2),
+            ("local_search_iterations", self.local_search_iterations, 0),
+            ("pareto_points", self.pareto_points, 0),
+            ("diagnostics_sample_size", self.diagnostics_sample_size, 1),
         ):
-            raise ValueError("max_candidate_pairs must be a positive integer")
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"{name} must be an integer >= {minimum}")
+        if not self.lsh_rows or any(
+            isinstance(row, bool) or not isinstance(row, int) or row < 1
+            for row in self.lsh_rows
+        ):
+            raise ValueError("lsh_rows must contain positive integers")
         if not 0 <= self.seed <= _MAX_SEED:
             raise ValueError(f"seed must be between 0 and {_MAX_SEED}")
 
@@ -107,10 +141,23 @@ class RunConfig:
             "similarity_threshold": self.similarity_threshold,
             "reduced_alphabet": self.reduced_alphabet,
             "verify_with": self.verify_with,
-            "prefilter_threshold": (
-                self.prefilter_threshold if self.verify_with != "none" else None
-            ),
+            "prefilter_threshold": self.prefilter_threshold if self.verify_with != "none" else None,
             "seed": self.seed,
             "no_clustering": self.no_clustering,
             "max_candidate_pairs": self.max_candidate_pairs,
+            "strict_clustering": self.strict_clustering,
+            "min_non_singleton_fraction": self.min_non_singleton_fraction,
+            "balance": self.balance,
+            "balance_weight": self.balance_weight,
+            "lsh_rows": list(self.lsh_rows),
+            "exact_mode": self.exact_mode,
+            "exact_mode_max_sequences": self.exact_mode_max_sequences,
+            "adaptive_threshold": self.adaptive_threshold,
+            "cluster_method": self.cluster_method,
+            "short_peptide_mode": self.short_peptide_mode,
+            "local_search_iterations": self.local_search_iterations,
+            "stratify_labels": self.stratify_labels,
+            "pareto_points": self.pareto_points,
+            "dry_run": self.dry_run,
+            "diagnostics_sample_size": self.diagnostics_sample_size,
         }

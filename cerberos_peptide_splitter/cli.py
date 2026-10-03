@@ -9,21 +9,24 @@ from .config import RunConfig
 from .pipeline import run_audit, run_split
 
 
-def _parse_kmer_sizes(value: str) -> list:
+def _parse_csv_ints(value: str, label: str) -> list[int]:
     try:
-        sizes = [int(item.strip()) for item in value.split(",") if item.strip()]
+        values = [int(item.strip()) for item in value.split(",") if item.strip()]
     except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            "k-mer sizes must be comma-separated integers"
-        ) from exc
-    if not sizes or any(size < 1 for size in sizes):
-        raise argparse.ArgumentTypeError("k-mer sizes must be positive integers")
-    return sizes
+        raise argparse.ArgumentTypeError(f"{label} must be comma-separated integers") from exc
+    if not values or any(value < 1 for value in values):
+        raise argparse.ArgumentTypeError(f"{label} must contain positive integers")
+    return values
+
+
+def _parse_kmer_sizes(value: str) -> list[int]:
+    return _parse_csv_ints(value, "k-mer sizes")
 
 
 def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", default="cerberos_out")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--diagnostics-sample-size", type=int, default=1000)
 
 
 def _add_clustering(parser: argparse.ArgumentParser) -> None:
@@ -34,25 +37,28 @@ def _add_clustering(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--similarity-threshold", type=float, default=0.70)
     parser.add_argument("--kmer-sizes", type=_parse_kmer_sizes, default=[3])
     parser.add_argument("--num-hashes", type=int, default=128)
-    parser.add_argument(
-        "--max-candidate-pairs",
-        type=int,
-        default=250_000,
-        help="maximum LSH candidate pairs to examine (bounds time and memory)",
-    )
-    parser.add_argument(
-        "--reduced-alphabet",
-        choices=["none", "groups5", "groups7"],
-        default="none",
-        help="collapse residues into functional groups before k-mering (Path A)",
-    )
+    parser.add_argument("--max-candidate-pairs", type=int, default=250_000)
+    parser.add_argument("--reduced-alphabet", choices=["none", "groups5", "groups7"], default="none")
     parser.add_argument(
         "--verify-with",
-        choices=["none", "kmer-exact", "levenshtein"],
+        choices=["none", "kmer-exact", "levenshtein", "containment", "cosine"],
         default="none",
-        help="verify LSH candidates using exact k-mer Jaccard or global edit similarity",
     )
     parser.add_argument("--prefilter-threshold", type=float, default=0.30)
+    parser.add_argument("--strict-clustering", action="store_true")
+    parser.add_argument("--min-non-singleton-fraction", type=float, default=0.05)
+    parser.add_argument("--balance", action="store_true")
+    parser.add_argument("--balance-weight", type=float, default=1.0)
+    parser.add_argument("--lsh-rows", type=lambda value: _parse_csv_ints(value, "LSH rows"), default=[2, 4, 8])
+    parser.add_argument("--exact-mode", action="store_true")
+    parser.add_argument("--exact-mode-max-sequences", type=int, default=50_000)
+    parser.add_argument("--adaptive-threshold", action="store_true")
+    parser.add_argument("--cluster-method", choices=["components", "label-propagation"], default="components")
+    parser.add_argument("--short-peptide-mode", choices=["ignore", "warn", "auto"], default="warn")
+    parser.add_argument("--local-search-iterations", type=int, default=0)
+    parser.add_argument("--stratify-labels", action="store_true")
+    parser.add_argument("--pareto-points", type=int, default=0)
+    parser.add_argument("--dry-run", action="store_true")
 
 
 def _build_config(args: argparse.Namespace) -> RunConfig:
@@ -69,6 +75,21 @@ def _build_config(args: argparse.Namespace) -> RunConfig:
         seed=args.seed,
         no_clustering=args.no_clustering,
         max_candidate_pairs=args.max_candidate_pairs,
+        strict_clustering=args.strict_clustering,
+        min_non_singleton_fraction=args.min_non_singleton_fraction,
+        balance=args.balance,
+        balance_weight=args.balance_weight,
+        lsh_rows=args.lsh_rows,
+        exact_mode=args.exact_mode,
+        exact_mode_max_sequences=args.exact_mode_max_sequences,
+        adaptive_threshold=args.adaptive_threshold,
+        cluster_method=args.cluster_method,
+        short_peptide_mode=args.short_peptide_mode,
+        local_search_iterations=args.local_search_iterations,
+        stratify_labels=args.stratify_labels,
+        pareto_points=args.pareto_points,
+        dry_run=args.dry_run,
+        diagnostics_sample_size=args.diagnostics_sample_size,
     )
 
 
@@ -97,7 +118,11 @@ def main(argv=None) -> int:
         if args.command == "split":
             run_split(args.input, args.output_dir, _build_config(args))
         else:
-            config = RunConfig(kmer_sizes=args.kmer_sizes, seed=args.seed)
+            config = RunConfig(
+                kmer_sizes=args.kmer_sizes,
+                seed=args.seed,
+                diagnostics_sample_size=args.diagnostics_sample_size,
+            )
             run_audit(args.dir, args.output_dir, config)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

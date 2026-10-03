@@ -8,7 +8,7 @@ import sys
 from typing import Dict
 
 from .config import RunConfig
-from .diagnostics import build_report, summarize
+from .diagnostics import build_html_report, build_report, summarize
 from .fasta import parse_fasta, write_fasta
 from .split import split_records
 
@@ -61,11 +61,18 @@ def _write_outputs(
     report = build_report(stats, mode=mode)
     with open(os.path.join(output_dir, "report.txt"), "w") as fh:
         fh.write(report)
+    with open(os.path.join(output_dir, "report.html"), "w") as fh:
+        fh.write(build_html_report(stats, mode=mode))
 
     try:
         from .plots import make_plots
 
-        make_plots(splits, output_dir, kmer_k=config.kmer_sizes[0])
+        make_plots(
+            splits,
+            output_dir,
+            kmer_k=config.kmer_sizes[0],
+            cluster_labels=config.last_cluster_by_record_id,
+        )
     except Exception as exc:  # pragma: no cover
         _log(f"plots skipped: {exc}")
 
@@ -83,7 +90,13 @@ def run_split(input_path: str, output_dir: str, config: RunConfig) -> dict:
     _log(f"{len(records)} sequences loaded")
 
     splits = split_records(records, config, verbose=True)
-    return _write_outputs(splits, output_dir, config, mode="split", write_fastas=True)
+    return _write_outputs(
+        splits,
+        output_dir,
+        config,
+        mode="split",
+        write_fastas=not config.dry_run,
+    )
 
 
 def run_audit(check_dir: str, output_dir: str, config: RunConfig) -> dict:

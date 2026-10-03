@@ -10,6 +10,12 @@
 
 Cerberos reads a FASTA file, generates approximate sequence-similarity clusters, and assigns complete clusters to train, validation, and test splits. It can also describe an existing set of three splits. It is designed to help identify obvious near-duplicate leakage. It is not a substitute for a validated alignment-based homology search and does not guarantee leakage-free evaluation.
 
+For higher-assurance runs, `--strict-clustering` makes the split fail rather than
+silently falling back to an all-singleton/random-looking result. The optional
+`--balance` mode assigns complete clusters using both target split sizes and
+normalized biochemical feature means; cluster integrity always takes priority
+over exact proportions.
+
 The package requires NumPy. Plotting is an optional Matplotlib extra. KS and Wasserstein descriptive distances are computed with NumPy and do not require SciPy. Cerberos runs locally and does not call external services or external sequence-search binaries.
 
 ## Contents
@@ -22,6 +28,8 @@ The package requires NumPy. Plotting is an optional Matplotlib extra. KS and Was
 - [Scientific definitions and limitations](#scientific-definitions-and-limitations)
 - [Python API](#python-api)
 - [Development and tests](#development-and-tests)
+- [Troubleshooting](TROUBLESHOOTING.md)
+- [Roadmap example](examples/roadmap_demo.md)
 - [References](#references)
 
 ## Installation
@@ -119,9 +127,9 @@ Rules:
 
 The audit command recognizes `train.fasta`/`.fa`/`.faa`, `val.fasta`/`.fa`/`.faa` or `valid.fasta`/`.fa`, and `test.fasta`/`.fa`/`.faa`.
 
-`stats.json` contains the effective configuration, candidate-generation counts and limits for split runs, split sizes and label counts, length and feature summaries, sampled pairwise k-mer Jaccard summaries, empirical KS D statistics, Wasserstein distances, and heuristic warnings. Empty samples are represented with JSON `null`, never non-standard `NaN` literals.
+`stats.json` contains the effective configuration, multi-LSH candidate-generation counts, exact-recall benchmark, accepted/rejected score histograms, cluster-size distribution, split sizes and label counts, length and feature summaries, sampled pairwise k-mer Jaccard summaries, empirical KS D statistics, Wasserstein distances, nearest-neighbor leakage-risk distributions, cluster-quality scores, size confidence intervals, and heuristic warnings. `report.txt` and `report.html` provide human-readable versions. Empty samples are represented with JSON `null`, never non-standard `NaN` literals.
 
-For large files, reduce the search ceiling explicitly, for example with `--max-candidate-pairs 100000`. This bounds candidate-pair verification, but a smaller value increases the chance that related sequences are not grouped. Always check `candidate_generation` in `stats.json` and the warning in `report.txt` to see whether sampling or the cap affected a run.
+For large files, reduce the search ceiling explicitly, for example with `--max-candidate-pairs 100000`. This bounds candidate-pair verification, but a smaller value increases the chance that related sequences are not grouped. Always check `candidate_generation` in `stats.json` and the warning in `report.txt` to see whether sampling or the cap affected a run. For small high-assurance datasets, use `--exact-mode`; for sensitivity analysis, use multiple `--lsh-rows` values and inspect `candidate_recall_benchmark`.
 
 ## CLI reference
 
@@ -143,6 +151,19 @@ For large files, reduce the search ceiling explicitly, for example with `--max-c
 | `--reduced-alphabet NAME` | `none` | `none`, `groups5`, or `groups7`; transform residues before candidate generation. |
 | `--verify-with NAME` | `none` | `none`, `kmer-exact`, or `levenshtein`. |
 | `--prefilter-threshold F` | `0.30` | MinHash estimate threshold before deterministic verification; cannot exceed the final threshold. |
+| `--strict-clustering` | off | Fail if no accepted edges are found or too few sequences belong to non-singleton clusters. |
+| `--min-non-singleton-fraction F` | `0.05` | Minimum non-singleton sequence fraction required by strict mode. |
+| `--balance` | off | Use composition-aware whole-cluster assignment in addition to size targets. |
+| `--balance-weight F` | `1.0` | Weight of the normalized biochemical composition objective, from 0 to 1. |
+| `--lsh-rows CSV` | `2,4,8` | Run several deterministic LSH band granularities and union their candidate sets. |
+| `--exact-mode` | off | Enumerate exact pairs when the active dataset is below `--exact-mode-max-sequences`. |
+| `--adaptive-threshold` | off | Select an Otsu threshold from observed candidate scores. |
+| `--cluster-method NAME` | `components` | Use connected components or deterministic label-propagation communities. |
+| `--short-peptide-mode NAME` | `warn` | Ignore, warn, or automatically use `groups5` for sequences shorter than the smallest k. |
+| `--local-search-iterations N` | `0` | Improve assignments with deterministic pairwise cluster swaps. |
+| `--stratify-labels` | off | Add label-proportion penalties while assigning complete clusters. |
+| `--pareto-points N` | `0` | Include size/composition trade-off points in `stats.json`. |
+| `--dry-run` | off | Compute and report the proposed split without writing split FASTA files. |
 
 ### `cerberos-peptide-splitter audit`
 
@@ -162,8 +183,8 @@ Invalid CLI values and missing input files are reported as concise command-line 
 3. **Bounded LSH candidate generation.** The 128-hash default uses 32 bands of four rows. One band's buckets are processed at a time instead of retaining all pairs in memory. Under the ideal independent-MinHash model, a pair with transformed k-mer Jaccard `s` would be proposed with probability approximately `1 - (1 - s^4)^32`. This is a model-based retrieval probability, not a guarantee. Finite hash families, a partial final band for non-multiples of four, dense-bucket sampling, and the candidate budget change realized recall. Buckets of at most 128 sequences are fully enumerated; larger buckets use a deterministic sampled neighborhood. A default budget of 250,000 candidate pairs, deduplicated within each k search, is distributed over the configured k values. Dense-bucket sampling and budget exhaustion are reported in the log, `stats.json`, and `report.txt`. This avoids quadratic pair-set memory and limits verification work, but it can miss related pairs. A low prefilter threshold does **not** make candidate recall exhaustive.
 4. **Optional deterministic scoring.** `kmer-exact` calculates exact unique-k-mer Jaccard on transformed sequences and takes the maximum across configured k values. `levenshtein` calculates global unit-cost edit similarity on raw sequences, `1 - edit_distance / max(len(seq_a), len(seq_b))`. It is not alignment-based percent identity. Verification only scores pairs already proposed by LSH.
 5. **Connected components.** Accepted pair edges are merged with Union-Find. A connected component may include a pair of endpoints whose direct score is below the edge threshold, due to transitivity.
-6. **Whole-cluster split assignment.** Clusters are greedily assigned to minimize deviation from target split sizes. Preserving clusters takes priority over exact proportions. Clustered assignment does not stratify clusters by label. If `--no-clustering` is used, random splitting is applied; when every record has a label, label stratification is used.
-7. **Descriptive diagnostics.** Raw sequences are used for pairwise k-mer distances and biochemical features. Pairwise similarity is sampled per split for cost control. Feature distances are descriptive, not inferential tests of model generalization.
+6. **Whole-cluster split assignment.** Clusters are greedily assigned to minimize deviation from target split sizes. With `--balance`, the cost also includes normalized squared deviation of each split's biochemical feature means from the overall dataset mean. Preserving clusters takes priority over exact proportions. Clustered assignment does not stratify clusters by label. If `--no-clustering` is used, random splitting is applied; when every record has a label, label stratification is used.
+7. **Descriptive diagnostics.** Raw sequences are used for pairwise k-mer distances and biochemical features. Pairwise similarity is sampled per split for cost control. The report also includes cluster-size observability, split-to-overall KS/Wasserstein distances, and nearest-neighbor similarity from validation/test to train. These are descriptive, not inferential tests of model generalization.
 
 ## Scientific definitions and limitations
 

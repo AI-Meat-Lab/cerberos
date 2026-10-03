@@ -124,6 +124,97 @@ def feature_ks(
     return ks, wasserstein, pairs
 
 
+def _nearest_neighbor_similarity(
+    query_records, reference_records, k: int
+) -> Dict[str, object]:
+    """Return the exact-k-mer similarity distribution to the nearest reference."""
+    if not query_records or not reference_records:
+        return {"n_queries": len(query_records), "mean": None, "max": None, "values": []}
+    values = [
+        max(exact_kmer_jaccard(query[2], reference[2], k) for reference in reference_records)
+        for query in query_records
+    ]
+    return {
+        "n_queries": len(values),
+        "mean": float(np.mean(values)),
+        "max": float(np.max(values)),
+        "p95": float(np.percentile(values, 95)),
+        "values": values,
+    }
+
+
+def _feature_balance_against_overall(splits: Dict[str, list], feature_names: List[str]):
+    """Compare each split's feature distribution with the full dataset."""
+    all_records = [record for records in splits.values() for record in records]
+    overall = build_feature_matrix(all_records)[0]
+    output = {}
+    for split, records in splits.items():
+        matrix = build_feature_matrix(records)[0]
+        ks_values, wasserstein_values = [], []
+        for index in range(len(feature_names)):
+            if matrix.shape[0] == 0 or overall.shape[0] == 0:
+                ks_values.append(None)
+                wasserstein_values.append(None)
+            else:
+                left, right = matrix[:, index], overall[:, index]
+                ks_values.append(_ks_statistic(left, right))
+                wasserstein_values.append(_wasserstein_distance(left, right))
+        output[split] = {"ks": ks_values, "wasserstein": wasserstein_values}
+    return output
+
+
+def _cluster_quality(matrix, labels, max_n=1000):
+    """Compute NumPy-only silhouette, Davies-Bouldin, and CH scores."""
+    if matrix is None or len(matrix) < 3 or len(set(labels)) < 2:
+        return {"silhouette": None, "davies_bouldin": None, "calinski_harabasz": None}
+    matrix = np.asarray(matrix, dtype=float)
+    labels = np.asarray(labels)
+    if len(matrix) > max_n:
+        indices = np.linspace(0, len(matrix) - 1, max_n, dtype=int)
+        matrix, labels = matrix[indices], labels[indices]
+    unique = sorted(set(labels.tolist()))
+    distances = np.sqrt(np.maximum(0.0, ((matrix[:, None, :] - matrix[None, :, :]) ** 2).sum(axis=2)))
+    centroids, scatters = {}, {}
+    for label in unique:
+        members = matrix[labels == label]
+        centroids[label] = members.mean(axis=0)
+        scatters[label] = float(np.mean(np.linalg.norm(members - centroids[label], axis=1)))
+    silhouettes = []
+    for index, label in enumerate(labels):
+        own = labels == label
+        a = float(distances[index, own].sum() / max(1, own.sum() - 1))
+        other_means = [float(distances[index, labels == other].mean()) for other in unique if other != label]
+        b = min(other_means) if other_means else 0.0
+        silhouettes.append((b - a) / max(a, b, 1e-12))
+    db_terms = []
+    for left in unique:
+        ratios = []
+        for right in unique:
+            if left != right:
+                separation = np.linalg.norm(centroids[left] - centroids[right])
+                ratios.append((scatters[left] + scatters[right]) / max(separation, 1e-12))
+        db_terms.append(max(ratios) if ratios else 0.0)
+    overall = matrix.mean(axis=0)
+    between = sum(np.sum(labels == label) * np.sum((centroids[label] - overall) ** 2) for label in unique)
+    within = sum(np.sum((matrix[labels == label] - centroids[label]) ** 2) for label in unique)
+    ch = between / max(within, 1e-12) * (len(matrix) - len(unique)) / max(1, len(unique) - 1)
+    return {"silhouette": float(np.mean(silhouettes)), "davies_bouldin": float(np.mean(db_terms)), "calinski_harabasz": float(ch)}
+
+
+def _size_confidence_intervals(sizes, config):
+    total = sum(sizes.values())
+    output = {}
+    for name, proportion in zip(("train", "val", "test"), (config.train_pct, config.val_pct, config.test_pct)):
+        standard_error = (proportion * (1 - proportion) / max(1, total)) ** 0.5
+        output[name] = {
+            "observed": sizes.get(name, 0),
+            "target_proportion": proportion,
+            "expected": proportion * total,
+            "random_assignment_95ci_proportion": [max(0.0, proportion - 1.96 * standard_error), min(1.0, proportion + 1.96 * standard_error)],
+        }
+    return output
+
+
 def summarize(
     splits: Dict[str, list],
     config: RunConfig,
@@ -204,6 +295,30 @@ def summarize(
         "values": ks.tolist(),
         "wasserstein": wasserstein.tolist(),
     }
+    stats["feature_balance"] = {
+        "reference": "overall_dataset",
+        "features": feature_names,
+        "splits": _feature_balance_against_overall(splits, feature_names),
+    }
+    stats["nearest_neighbor_similarity"] = {
+        "metric": f"maximum exact {kmer_k}-mer Jaccard to reference split",
+        "test_to_train": _nearest_neighbor_similarity(
+            splits.get("test", []), splits.get("train", []), kmer_k
+        ),
+        "val_to_train": _nearest_neighbor_similarity(
+            splits.get("val", []), splits.get("train", []), kmer_k
+        ),
+    }
+    stats["size_confidence_intervals"] = _size_confidence_intervals(stats["sizes"], config)
+    stats["cluster_quality"] = _cluster_quality(
+        config.last_cluster_features,
+        config.last_cluster_assignments,
+        max_n=config.diagnostics_sample_size,
+    )
+    if config.last_assignment_stats:
+        stats["assignment"] = dict(config.last_assignment_stats)
+    if config.last_clustering_stats:
+        stats["clustering"] = dict(config.last_clustering_stats)
     for pair_index, (split_a, split_b) in enumerate(pairs):
         for feature_index, feature in enumerate(feature_names):
             distance = ks[feature_index, pair_index]
@@ -240,8 +355,8 @@ def build_report(stats: dict, mode: str) -> str:
     candidate_warning = bool(
         candidate_generation
         and (
-            candidate_generation["candidate_limit_reached"]
-            or candidate_generation["oversized_lsh_buckets_sampled"]
+            candidate_generation.get("candidate_limit_reached", False)
+            or candidate_generation.get("oversized_lsh_buckets_sampled", 0)
         )
     )
     if candidate_generation:
@@ -249,23 +364,54 @@ def build_report(stats: dict, mode: str) -> str:
             [
                 "",
                 "Candidate generation:",
-                f"  pairs considered : {candidate_generation['candidate_pairs_considered']}",
-                f"  pairs verified   : {candidate_generation['candidate_pairs_verified']}",
-                f"  dense buckets sampled: {candidate_generation['oversized_lsh_buckets_sampled']}",
+                f"  pairs considered : {candidate_generation.get('candidate_pairs_considered', 0)}",
+                f"  pairs verified   : {candidate_generation.get('candidate_pairs_verified', 0)}",
+                f"  dense buckets sampled: {candidate_generation.get('oversized_lsh_buckets_sampled', 0)}",
             ]
         )
-        if candidate_generation["candidate_limit_reached"]:
+        if candidate_generation.get("candidate_limit_reached", False):
             lines.append(
                 "  WARNING: candidate-pair limit reached; this split may contain "
                 "unmerged similar sequences."
             )
-        elif candidate_generation["oversized_lsh_buckets_sampled"]:
+        elif candidate_generation.get("oversized_lsh_buckets_sampled", 0):
             lines.append(
                 "  WARNING: dense LSH buckets were sampled; candidate recall is reduced."
             )
     lines.extend(["", "Split sizes:"])
     for name, count in stats["sizes"].items():
         lines.append(f"  {name:<6s}: {count:>6d}")
+    clustering = stats.get("clustering", {})
+    if clustering:
+        lines.extend(
+            [
+                "",
+                "Clustering observability:",
+                f"  accepted edges       : {clustering.get('accepted_edges', 0)}",
+                f"  clusters             : {clustering.get('cluster_count', 'n/a')}",
+                f"  singleton clusters   : {clustering.get('singleton_count', 'n/a')}",
+                f"  non-singleton fraction: {_format_number(clustering.get('non_singleton_fraction'), '.3f')}",
+                f"  size distribution    : {clustering.get('cluster_size_distribution', {})}",
+            ]
+        )
+        if clustering.get("candidate_recall_benchmark") is not None:
+            lines.append(f"  exact benchmark recall: {clustering['candidate_recall_benchmark']:.3f}")
+        lines.append(
+            "  accepted/rejected score histograms: "
+            f"{clustering.get('accepted_score_histogram', [])} / "
+            f"{clustering.get('rejected_score_histogram', [])}"
+        )
+    assignment = stats.get("assignment", {})
+    if assignment:
+        lines.extend(
+            [
+                "",
+                "Cluster assignment:",
+                f"  method               : {assignment.get('method', 'n/a')}",
+                f"  target sizes         : {assignment.get('target_sizes', {})}",
+                f"  observed sizes       : {assignment.get('observed_sizes', {})}",
+            ]
+        )
     lines.append("")
     if stats.get("label_counts"):
         lines.append("Label counts:")
@@ -288,6 +434,27 @@ def build_report(stats: dict, mode: str) -> str:
             f"  {name:<14s}: mean={_format_number(values['mean_jaccard'], '.3f')} "
             f"std={_format_number(values['std'], '.3f')} "
             f"(pairs={values['n_pairs']})"
+        )
+    nn = stats.get("nearest_neighbor_similarity", {})
+    if nn:
+        lines.extend(["", "Cross-split nearest-neighbor similarity (leakage risk):"])
+        for name in ("test_to_train", "val_to_train"):
+            values = nn.get(name, {})
+            lines.append(
+                f"  {name:<14s}: mean={_format_number(values.get('mean'), '.3f')} "
+                f"p95={_format_number(values.get('p95'), '.3f')} "
+                f"max={_format_number(values.get('max'), '.3f')}"
+            )
+    quality = stats.get("cluster_quality", {})
+    if quality:
+        lines.extend(
+            [
+                "",
+                "Cluster quality:",
+                f"  silhouette          : {_format_number(quality.get('silhouette'), '.3f')}",
+                f"  Davies-Bouldin      : {_format_number(quality.get('davies_bouldin'), '.3f')}",
+                f"  Calinski-Harabasz   : {_format_number(quality.get('calinski_harabasz'), '.3f')}",
+            ]
         )
     lines.append("")
     if stats.get("homology_warnings"):
@@ -316,3 +483,22 @@ def build_report(stats: dict, mode: str) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def build_html_report(stats: dict, mode: str) -> str:
+    """Render the plain-text report and machine-readable stats as standalone HTML."""
+    import html
+    import json
+
+    text = html.escape(build_report(stats, mode))
+    payload = html.escape(json.dumps(stats, indent=2, allow_nan=False))
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<title>Cerberos diagnostics</title><style>"
+        "body{font:15px system-ui,sans-serif;max-width:1100px;margin:2rem auto;padding:0 1rem;color:#202124}"
+        "pre{white-space:pre-wrap;background:#f6f8fa;padding:1rem;border-radius:8px}"
+        "details{margin-top:1rem}</style></head><body>"
+        f"<h1>Cerberos diagnostics ({html.escape(mode)} mode)</h1><pre>{text}</pre>"
+        f"<details><summary>Raw stats.json</summary><pre>{payload}</pre></details>"
+        "</body></html>"
+    )
