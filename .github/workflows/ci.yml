@@ -1,0 +1,303 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  schedule:
+    - cron: "0 6 * * 1"       # Mondays 06:00 UTC — catch dep drift
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ═══════════════════════════════════════════════════════════
+  # 1. Minimal deps — numpy only
+  # ═══════════════════════════════════════════════════════════
+  test-minimal:
+    name: Test (minimal) py${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install (numpy only)
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy pytest pytest-timeout
+
+      - name: Verify numpy-only promise
+        run: |
+          python -c "import cerberos; print('import ok')"
+          python -c "from importlib.util import find_spec; import sys; sys.exit(1) if any(find_spec(m) is not None for m in ('scipy','matplotlib')) else print('optional deps correctly absent')"
+          
+      - name: Run unit tests (skipping optional)
+        env:
+          PEPTIDE_SPLITTER_NO_MPL: "1"
+          PEPTIDE_SPLITTER_NO_SCIPY: "1"
+        run: pytest -q -m "not optional" --timeout=300
+
+  # ═══════════════════════════════════════════════════════════
+  # 2. Full deps — numpy + scipy + matplotlib + coverage
+  # ═══════════════════════════════════════════════════════════
+  test-full:
+    name: Test (full) py${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install (full)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Run full suite with coverage
+        run: pytest -q --cov=cerberos --cov-report=xml --cov-report=term-missing --timeout=300
+        
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+
+      - name: Upload coverage artifact
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  # ═══════════════════════════════════════════════════════════
+  # 3. Path A × Path B matrix — the headline feature
+  # ═══════════════════════════════════════════════════════════
+  path-matrix:
+    name: Path ${{ matrix.alphabet }} × ${{ matrix.verify }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        alphabet: [none, groups5, groups7]
+        verify:   [none, kmer-exact, levenshtein]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Run Path A+B combo end to end
+        run: |
+          cerberos split \
+              --input tests/data/sample_labeled.fasta \
+              --reduced-alphabet ${{ matrix.alphabet }} \
+              --verify-with ${{ matrix.verify }} \
+              --similarity-threshold 0.85 \
+              --prefilter-threshold 0.30 \
+              --kmer-sizes 2,3 \
+              --num-hashes 64 \
+              --seed 42 \
+              --output-dir out/
+
+      - name: Verify outputs
+        run: |
+          test -f out/train.fasta
+          test -f out/val.fasta
+          test -f out/test.fasta
+          test -f out/report.txt
+          test -f out/stats.json
+
+      - name: Verify clustering mode is stamped in stats
+        run: |
+          python - <<'PY'
+          import json
+          s = json.load(open("out/stats.json"))
+          cm = s["clustering_mode"]
+          assert cm["reduced_alphabet"] == "${{ matrix.alphabet }}", cm
+          assert cm["verify_with"]      == "${{ matrix.verify }}", cm
+          print("mode echo OK:", cm["reduced_alphabet"], cm["verify_with"])
+          PY
+
+      - name: Audit the produced splits
+        run: |
+          cerberos audit --dir out/ --output-dir audit_out/
+          test -f audit_out/report.txt
+
+  # ═══════════════════════════════════════════════════════════
+  # 4. CLI smoke tests — covers both subcommands
+  # ═══════════════════════════════════════════════════════════
+  smoke-cli:
+    name: CLI smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (as a package)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Top-level help
+        run: cerberos --help
+
+      - name: Subcommand help
+        run: |
+          cerberos split --help
+          cerberos audit --help
+
+      - name: Split (minimal, no clustering)
+        run: |
+          cerberos split \
+              --input tests/data/sample.fasta \
+              --no-clustering \
+              --output-dir /tmp/split_noclust/
+
+      - name: Split (Path A + B)
+        run: |
+          cerberos split \
+              --input tests/data/sample_labeled.fasta \
+              --reduced-alphabet groups5 \
+              --verify-with levenshtein \
+              --similarity-threshold 0.85 \
+              --prefilter-threshold 0.30 \
+              --kmer-sizes 2,3 \
+              --num-hashes 64 \
+              --seed 1 \
+              --output-dir /tmp/split_ab/
+
+      - name: Audit
+        run: |
+          cerberos audit --dir /tmp/split_ab/ --output-dir /tmp/audit_ab/
+          grep -q "Clustering configuration:" /tmp/audit_ab/report.txt
+          grep -q "Split sizes:"              /tmp/audit_ab/report.txt
+
+      - name: Fail on invalid args
+        run: |
+          if cerberos split --input tests/data/sample.fasta \
+                            --reduced-alphabet groups42 \
+                            --output-dir /tmp/bad; then
+            echo "should have failed on invalid alphabet"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-cli-outputs
+          path: |
+            /tmp/split_noclust
+            /tmp/split_ab
+            /tmp/audit_ab
+
+  # ═══════════════════════════════════════════════════════════
+  # 5. Determinism — same seed ⇒ byte-identical outputs
+  # ═══════════════════════════════════════════════════════════
+  determinism:
+    name: Determinism check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Run twice with same seed (default mode)
+        run: |
+          cerberos split --input tests/data/sample_labeled.fasta \
+              --seed 42 --num-hashes 64 --kmer-sizes 2,3 \
+              --output-dir /tmp/run_a
+          cerberos split --input tests/data/sample_labeled.fasta \
+              --seed 42 --num-hashes 64 --kmer-sizes 2,3 \
+              --output-dir /tmp/run_b
+          diff /tmp/run_a/train.fasta /tmp/run_b/train.fasta
+          diff /tmp/run_a/val.fasta   /tmp/run_b/val.fasta
+          diff /tmp/run_a/test.fasta  /tmp/run_b/test.fasta
+
+      - name: Run twice with same seed (Path A + B)
+        run: |
+          COMMON="--input tests/data/sample_labeled.fasta \
+                  --reduced-alphabet groups5 \
+                  --verify-with levenshtein \
+                  --similarity-threshold 0.85 \
+                  --prefilter-threshold 0.30 \
+                  --kmer-sizes 2,3 --num-hashes 64 --seed 42"
+          cerberos split $COMMON --output-dir /tmp/ab_a
+          cerberos split $COMMON --output-dir /tmp/ab_b
+          diff /tmp/ab_a/train.fasta /tmp/ab_b/train.fasta
+          diff /tmp/ab_a/stats.json  /tmp/ab_b/stats.json
+
+  # ═══════════════════════════════════════════════════════════
+  # 6. Build sdist + wheel, install, run entry point
+  # ═══════════════════════════════════════════════════════════
+  build:
+    name: Build sdist + wheel
+    runs-on: ubuntu-latest
+    needs: [test-minimal, test-full]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check dist/*
+
+      - name: Install wheel + smoke test entry point
+        run: |
+          pip install dist/*.whl
+          cerberos --help
+          cerberos split --help
+          cerberos audit --help
+          python -c "import cerberos; print(cerberos.__version__)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

@@ -1,0 +1,184 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ═════════════════════════════════════════════════════════════
+# Project metadata
+# ═════════════════════════════════════════════════════════════
+[project]
+name = "cerberos"
+version = "0.0.1b"
+description = "Homology-aware, OOD-safe splitting of peptide FASTA files. Pure Python, no external tools."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [{ name = "Your Name", email = "you@example.com" }]
+keywords = [
+    "peptides", "fasta", "train-test-split", "minhash", "lsh",
+    "out-of-distribution", "ood", "bioinformatics",
+    "antimicrobial-peptides",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+dependencies = ["numpy>=1.20"]
+
+[project.optional-dependencies]
+plots = ["matplotlib>=3.5"]
+stats = ["scipy>=1.7"]
+full  = ["matplotlib>=3.5", "scipy>=1.7"]
+dev   = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-timeout>=2.1",
+    "pytest-xdist>=3.0",
+    "hypothesis>=6.0",
+    "black>=23.0",
+    "ruff>=0.4",
+    "isort>=5.12",
+    "mypy>=1.5",
+    "build>=1.0",
+    "twine>=4.0",
+]
+
+[project.scripts]
+cerberos = "cerberos.cli:main"
+
+[project.urls]
+Homepage      = "https://github.com/your-org/cerberos"
+Documentation = "https://github.com/your-org/cerberos#readme"
+Repository    = "https://github.com/your-org/cerberos"
+Issues        = "https://github.com/your-org/cerberos/issues"
+
+# ═════════════════════════════════════════════════════════════
+# Packaging
+# ═════════════════════════════════════════════════════════════
+[tool.setuptools.packages.find]
+include = ["cerberos*"]
+
+[tool.setuptools.package-data]
+cerberos = ["py.typed"]
+
+# ═════════════════════════════════════════════════════════════
+# Pytest
+# ═════════════════════════════════════════════════════════════
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths  = ["tests"]
+addopts    = "-ra -q --strict-markers --strict-config"
+markers = [
+    "optional: requires scipy and/or matplotlib",
+    "slow: long-running test",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+# ═════════════════════════════════════════════════════════════
+# Coverage
+# ═════════════════════════════════════════════════════════════
+[tool.coverage.run]
+source = ["cerberos"]
+branch = true
+omit   = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+
+# ═════════════════════════════════════════════════════════════
+# Ruff
+# ═════════════════════════════════════════════════════════════
+[tool.ruff]
+line-length    = 88
+target-version = "py38"
+extend-exclude = ["build", "dist", ".venv", ".tox"]
+
+[tool.ruff.format]
+quote-style        = "double"
+indent-style       = "space"
+line-ending        = "auto"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "RUF"]
+ignore = [
+    "E501",     # line length — black handles it
+    "B008",     # function call in default arg (argparse uses it)
+    "SIM108",   # ternary operator suggestion
+
+    # Modern-typing rules — silenced to keep py3.8-compatible
+    # `typing.List` / `Optional[...]` without `from __future__ import
+    # annotations` everywhere. Switch these off when you drop 3.8.
+    "UP006",    # List[X]        → list[X]
+    "UP007",    # Union[X, Y]    → X | Y
+    "UP035",    # deprecated typing imports
+    "UP045",    # Optional[X]    → X | None
+
+    # Micro-style preferences
+    "RUF046",   # int(round(x)) — kept for explicit readability
+    "C408",     # dict(k=v, ...) — kept for multi-line readability
+    "RUF022",   # __all__ sorting — personal preference
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "B011"]
+
+# ═════════════════════════════════════════════════════════════
+# Black
+# ═════════════════════════════════════════════════════════════
+[tool.black]
+line-length    = 88
+target-version = ["py38", "py39", "py310", "py311", "py312"]
+extend-exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | build
+  | dist
+)/
+'''
+
+# ═════════════════════════════════════════════════════════════
+# isort
+# ═════════════════════════════════════════════════════════════
+[tool.isort]
+profile           = "black"
+line_length       = 88
+known_first_party = ["cerberos"]
+known_third_party = ["numpy", "scipy", "matplotlib", "pytest", "hypothesis"]
+
+# ═════════════════════════════════════════════════════════════
+# mypy
+# ═════════════════════════════════════════════════════════════
+[tool.mypy]
+python_version         = "3.8"
+warn_unused_configs    = true
+ignore_missing_imports = true
+no_strict_optional     = true
+disallow_untyped_defs  = false
+check_untyped_defs     = true
+show_error_codes       = true
+exclude                = ["build/", "dist/", "tests/"]
+
+[[tool.mypy.overrides]]
+module = ["scipy.*", "matplotlib.*"]
+ignore_missing_imports = true
