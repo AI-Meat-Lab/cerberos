@@ -8,7 +8,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Cerberos reads a FASTA file, generates approximate sequence-similarity clusters, and assigns complete clusters to train, validation, and test splits. It can also describe an existing set of three splits. It is designed to help identify obvious near-duplicate leakage; **it is not a substitute for a validated alignment-based homology search or a guarantee of leakage-free evaluation**.
+Cerberos reads a FASTA file, generates approximate sequence-similarity clusters, and assigns complete clusters to train, validation, and test splits. It can also describe an existing set of three splits. It is designed to help identify leakage; **however, it is not a substitute for a validated alignment-based homology search**.
 
 The package requires NumPy. Plotting is an optional Matplotlib extra; KS and Wasserstein descriptive distances are computed with NumPy and do not require SciPy. It runs locally and does not call external services or external sequence-search binaries.
 
