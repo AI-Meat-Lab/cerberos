@@ -1,13 +1,14 @@
 """Tests for cerberos.fasta."""
+
 from __future__ import annotations
 
 import pytest
 
-import cerberos
-from cerberos.fasta import parse_fasta, write_fasta
-
+import cerberos_peptide_splitter as cerberos
+from cerberos_peptide_splitter.fasta import parse_fasta, write_fasta
 
 # ─────────────────────── parsing ───────────────────────
+
 
 def test_parse_plain(tmp_path):
     p = tmp_path / "x.fasta"
@@ -72,6 +73,7 @@ def test_parse_trailing_newline(tmp_path):
 
 # ─────────────────────── writing ───────────────────────
 
+
 def test_write_roundtrip(tmp_path, sample_labeled_fasta_path):
     recs = parse_fasta(sample_labeled_fasta_path)
     out = tmp_path / "out.fasta"
@@ -106,3 +108,22 @@ def test_write_no_label_no_pipe(tmp_path):
 def test_public_alias_reexports_functions():
     assert cerberos.parse_fasta is parse_fasta
     assert cerberos.write_fasta is write_fasta
+
+
+def test_parse_rejects_sequence_before_header(tmp_path):
+    path = tmp_path / "invalid.fasta"
+    path.write_text("ACDE\n>p1\nFGHI\n")
+    with pytest.raises(ValueError, match="before first FASTA header"):
+        parse_fasta(str(path))
+
+
+def test_parse_rejects_empty_header(tmp_path):
+    path = tmp_path / "invalid.fasta"
+    path.write_text(">   \nACDE\n")
+    with pytest.raises(ValueError, match="empty FASTA header"):
+        parse_fasta(str(path))
+
+
+def test_write_rejects_invalid_wrap(tmp_path):
+    with pytest.raises(ValueError, match="positive integer"):
+        write_fasta([("p", None, "ACDE")], str(tmp_path / "x.fasta"), wrap=0)

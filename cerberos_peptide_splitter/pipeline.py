@@ -1,4 +1,5 @@
 """High-level orchestration used by the CLI and by library users."""
+
 from __future__ import annotations
 
 import json
@@ -19,9 +20,8 @@ def _log(msg: str) -> None:
 def _load_check_dir(path: str) -> Dict[str, list]:
     candidates = {
         "train": ["train.fasta", "train.fa", "train.faa"],
-        "val":   ["val.fasta", "val.fa", "val.faa",
-                  "valid.fasta", "valid.fa"],
-        "test":  ["test.fasta", "test.fa", "test.faa"],
+        "val": ["val.fasta", "val.fa", "val.faa", "valid.fasta", "valid.fa"],
+        "test": ["test.fasta", "test.fa", "test.faa"],
     }
     splits: Dict[str, list] = {}
     for split, names in candidates.items():
@@ -32,8 +32,8 @@ def _load_check_dir(path: str) -> Dict[str, list]:
                 break
         if split not in splits:
             raise FileNotFoundError(
-                f"no {split} FASTA found in {path} "
-                f"(tried {', '.join(names)})")
+                f"no {split} FASTA found in {path} (tried {', '.join(names)})"
+            )
     return splits
 
 
@@ -51,10 +51,10 @@ def _write_outputs(
             write_fasta(recs, path)
             _log(f"wrote {len(recs):>6d} -> {path}")
 
-    stats, _ = summarize(splits, config,
-                         kmer_k=config.kmer_sizes[0])
+    stats, _ = summarize(splits, config, kmer_k=config.kmer_sizes[0])
     with open(os.path.join(output_dir, "stats.json"), "w") as fh:
-        json.dump(stats, fh, indent=2)
+        json.dump(stats, fh, indent=2, allow_nan=False)
+        fh.write("\n")
 
     report = build_report(stats, mode=mode)
     with open(os.path.join(output_dir, "report.txt"), "w") as fh:
@@ -62,8 +62,9 @@ def _write_outputs(
 
     try:
         from .plots import make_plots
+
         make_plots(splits, output_dir, kmer_k=config.kmer_sizes[0])
-    except Exception as exc:      # pragma: no cover
+    except Exception as exc:  # pragma: no cover
         _log(f"plots skipped: {exc}")
 
     print()
@@ -80,8 +81,7 @@ def run_split(input_path: str, output_dir: str, config: RunConfig) -> dict:
     _log(f"{len(records)} sequences loaded")
 
     splits = split_records(records, config, verbose=True)
-    return _write_outputs(splits, output_dir, config,
-                          mode="split", write_fastas=True)
+    return _write_outputs(splits, output_dir, config, mode="split", write_fastas=True)
 
 
 def run_audit(check_dir: str, output_dir: str, config: RunConfig) -> dict:
@@ -90,5 +90,4 @@ def run_audit(check_dir: str, output_dir: str, config: RunConfig) -> dict:
     splits = _load_check_dir(check_dir)
     for n, recs in splits.items():
         _log(f"  {n}: {len(recs)} sequences")
-    return _write_outputs(splits, output_dir, config,
-                          mode="audit", write_fastas=False)
+    return _write_outputs(splits, output_dir, config, mode="audit", write_fastas=False)

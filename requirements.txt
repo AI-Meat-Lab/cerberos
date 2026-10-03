@@ -1,11 +1,2 @@
-# Cerberos — runtime requirements
-# NumPy is the ONLY hard dependency.  matplotlib and scipy are
-# optional; if missing, the tool runs and skips the corresponding
-# outputs.
-numpy>=1.20
-
-# optional — plots
-matplotlib>=3.5 ; python_version >= "3.8"
-
-# optional — KS / Wasserstein statistics
-scipy>=1.7 ; python_version >= "3.8"
+# Runtime requirement. Optional plotting/statistics libraries are declared as extras.
+numpy>=1.23

@@ -1,4 +1,5 @@
 """Matplotlib visualisations — optional, imported lazily."""
+
 from __future__ import annotations
 
 from typing import Dict
@@ -12,8 +13,10 @@ from .kmers import exact_kmer_jaccard
 def _mpl():
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         return plt
     except Exception:
         return None
@@ -27,9 +30,15 @@ def _hist_split_sizes(splits, path):
     counts = [len(splits[n]) for n in names]
     fig, ax = plt.subplots(figsize=(5.5, 3.8))
     bars = ax.bar(names, counts, color=["#4C72B0", "#DD8452", "#55A868"])
-    for b, c in zip(bars, counts):
-        ax.text(b.get_x() + b.get_width() / 2, c, str(c),
-                ha="center", va="bottom", fontsize=9)
+    for b, c in zip(bars, counts, strict=True):
+        ax.text(
+            b.get_x() + b.get_width() / 2,
+            c,
+            str(c),
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
     ax.set_ylabel("Sequences")
     ax.set_title("Split sizes")
     fig.tight_layout()
@@ -59,8 +68,14 @@ def _boxplots(splits, path):
     plt = _mpl()
     if plt is None:
         return
-    selected = ["length", "hydrophobicity", "charge",
-                "aromaticity", "grp_positive", "grp_negative"]
+    selected = [
+        "length",
+        "hydrophobicity",
+        "charge",
+        "aromaticity",
+        "grp_positive",
+        "grp_negative",
+    ]
     data = {}
     for n, recs in splits.items():
         mat, names = build_feature_matrix(recs)
@@ -83,8 +98,8 @@ def _boxplots(splits, path):
                 cols.append(colors.get(n, "gray"))
         if not vals:
             continue
-        bp = ax.boxplot(vals, patch_artist=True, labels=labs, showfliers=False)
-        for p, c in zip(bp["boxes"], cols):
+        bp = ax.boxplot(vals, patch_artist=True, tick_labels=labs, showfliers=False)
+        for p, c in zip(bp["boxes"], cols, strict=True):
             p.set_facecolor(c)
             p.set_alpha(0.7)
         ax.set_title(f, fontsize=10)
@@ -94,50 +109,63 @@ def _boxplots(splits, path):
     plt.close(fig)
 
 
-def _pca(splits, path, k=3, max_n=4000, seed=0):
+def _pca(splits, path, k=3, max_n=1000, max_features=512, seed=0):
     plt = _mpl()
     if plt is None:
         return
+    from collections import Counter
+
     from .kmers import kmers
+
     rng = np.random.RandomState(seed)
     seqs, labels = [], []
-    for n, recs in splits.items():
-        for r in recs:
-            seqs.append(r[2])
-            labels.append(n)
-    if not seqs:
+    for split_name, records in splits.items():
+        for record in records:
+            seqs.append(record[2])
+            labels.append(split_name)
+    if len(seqs) < 2:
         return
     if len(seqs) > max_n:
-        idx = rng.choice(len(seqs), max_n, replace=False)
-        seqs = [seqs[i] for i in idx]
-        labels = [labels[i] for i in idx]
-    vocab, per = set(), []
-    for s in seqs:
-        ks = kmers(s, k)
-        per.append(ks)
-        vocab.update(ks)
-    vocab = sorted(vocab)
-    vi = {km: i for i, km in enumerate(vocab)}
-    X = np.zeros((len(seqs), len(vocab)), dtype=np.float32)
-    for i, ks in enumerate(per):
-        for km in ks:
-            X[i, vi[km]] = 1.0
-    X -= X.mean(axis=0, keepdims=True)
+        indices = rng.choice(len(seqs), max_n, replace=False)
+        seqs = [seqs[index] for index in indices]
+        labels = [labels[index] for index in indices]
+    per_sequence = [kmers(sequence, k) for sequence in seqs]
+    frequencies = Counter(kmer for values in per_sequence for kmer in values)
+    vocabulary = sorted(frequencies, key=lambda kmer: (-frequencies[kmer], kmer))[
+        :max_features
+    ]
+    if len(vocabulary) < 2:
+        return
+    column = {kmer: index for index, kmer in enumerate(vocabulary)}
+    matrix = np.zeros((len(seqs), len(vocabulary)), dtype=np.float32)
+    for row, values in enumerate(per_sequence):
+        for kmer in values:
+            if kmer in column:
+                matrix[row, column[kmer]] = 1.0
+    matrix -= matrix.mean(axis=0, keepdims=True)
     try:
-        U, S, _ = np.linalg.svd(X, full_matrices=False)
+        left, singular_values, _ = np.linalg.svd(matrix, full_matrices=False)
     except np.linalg.LinAlgError:
         return
-    proj = U[:, :2] * S[:2]
+    if len(singular_values) < 2:
+        return
+    projection = left[:, :2] * singular_values[:2]
     fig, ax = plt.subplots(figsize=(6.5, 5.5))
     colors = {"train": "#4C72B0", "val": "#DD8452", "test": "#55A868"}
-    for n in splits:
-        mask = np.array([x == n for x in labels])
-        if mask.sum():
-            ax.scatter(proj[mask, 0], proj[mask, 1], s=10, alpha=0.55,
-                       c=colors.get(n, "gray"), label=f"{n} (n={mask.sum()})")
+    for split_name in splits:
+        mask = np.array([name == split_name for name in labels])
+        if mask.any():
+            ax.scatter(
+                projection[mask, 0],
+                projection[mask, 1],
+                s=10,
+                alpha=0.55,
+                c=colors.get(split_name, "gray"),
+                label=f"{split_name} (n={mask.sum()})",
+            )
     ax.set_xlabel("PC1")
     ax.set_ylabel("PC2")
-    ax.set_title(f"PCA of {k}-mer profiles")
+    ax.set_title(f"PCA of sampled {k}-mer profiles (top {len(vocabulary)} k-mers)")
     ax.legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -167,8 +195,7 @@ def _similarity_hist(splits, path, k=3, max_per_split=300, seed=0):
             if a == b:
                 for x in range(len(seqs[a])):
                     for y in range(x + 1, len(seqs[a])):
-                        sims.append(exact_kmer_jaccard(
-                            seqs[a][x], seqs[a][y], k))
+                        sims.append(exact_kmer_jaccard(seqs[a][x], seqs[a][y], k))
             else:
                 for A in seqs[a]:
                     for B in seqs[b]:
@@ -179,8 +206,13 @@ def _similarity_hist(splits, path, k=3, max_per_split=300, seed=0):
         return
     fig, ax = plt.subplots(figsize=(7.5, 4.2))
     for label, sims in dists.items():
-        ax.hist(sims, bins=30, alpha=0.5, density=True,
-                label=f"{label} (µ={np.mean(sims):.2f})")
+        ax.hist(
+            sims,
+            bins=30,
+            alpha=0.5,
+            density=True,
+            label=f"{label} (µ={np.mean(sims):.2f})",
+        )
     ax.set_xlabel(f"Jaccard similarity (k={k})")
     ax.set_ylabel("Density")
     ax.set_title("Pairwise similarity within / between splits")
@@ -216,6 +248,7 @@ def _label_balance(splits, path):
 
 def make_plots(splits: Dict[str, list], output_dir: str, kmer_k: int = 3) -> None:
     import os
+
     plt = _mpl()
     if plt is None:
         return
@@ -226,5 +259,4 @@ def make_plots(splits: Dict[str, list], output_dir: str, kmer_k: int = 3) -> Non
     _hist_lengths(splits, os.path.join(p, "length_distribution.png"))
     _boxplots(splits, os.path.join(p, "biochem_boxplots.png"))
     _pca(splits, os.path.join(p, "pca_projection.png"), k=kmer_k)
-    _similarity_hist(splits, os.path.join(p, "pairwise_similarity.png"),
-                     k=kmer_k)
+    _similarity_hist(splits, os.path.join(p, "pairwise_similarity.png"), k=kmer_k)

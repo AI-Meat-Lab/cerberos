@@ -1,23 +1,22 @@
 """Tests for cerberos.split."""
+
 from __future__ import annotations
 
-import random
 from collections import Counter
 
-import pytest
-
-from cerberos.split import (
+from cerberos_peptide_splitter.split import (
     _target_sizes,
     assign_clusters,
     split_records,
     stratified_random_split,
 )
 
-
 # ─────────────────────── _target_sizes ───────────────────────
 
+
 def test_target_sizes_sum_to_n():
-    from cerberos.config import RunConfig
+    from cerberos_peptide_splitter.config import RunConfig
+
     cfg = RunConfig()
     for n in (10, 100, 1001, 9999):
         t, v, te = _target_sizes(n, cfg)
@@ -25,7 +24,8 @@ def test_target_sizes_sum_to_n():
 
 
 def test_target_sizes_roughly_correct():
-    from cerberos.config import RunConfig
+    from cerberos_peptide_splitter.config import RunConfig
+
     cfg = RunConfig(train_pct=0.7, val_pct=0.15, test_pct=0.15)
     t, v, te = _target_sizes(1000, cfg)
     assert 690 <= t <= 710
@@ -35,14 +35,14 @@ def test_target_sizes_roughly_correct():
 
 # ─────────────────────── stratified ───────────────────────
 
+
 def test_stratified_preserves_label_ratio(labeled_records, config_factory):
     cfg = config_factory(train_pct=0.6, val_pct=0.2, test_pct=0.2)
     assign = stratified_random_split(labeled_records, cfg)
     counts = Counter(assign.values())
     assert sum(counts.values()) == len(labeled_records)
     for split in ("train", "val", "test"):
-        labels = [labeled_records[i][1]
-                  for i, s in assign.items() if s == split]
+        labels = [labeled_records[i][1] for i, s in assign.items() if s == split]
         if labels:
             c0, c1 = labels.count(0), labels.count(1)
             assert abs(c0 - c1) <= 1
@@ -70,6 +70,7 @@ def test_stratified_deterministic(labeled_records, config_factory):
 
 
 # ─────────────────────── assign_clusters ───────────────────────
+
 
 def test_assign_clusters_covers_all(config_factory):
     cfg = config_factory()
@@ -106,6 +107,7 @@ def test_assign_clusters_deterministic(config_factory):
 
 # ─────────────────────── split_records ───────────────────────
 
+
 def test_split_records_no_clustering(labeled_records, config_factory):
     cfg = config_factory(no_clustering=True)
     splits = split_records(labeled_records, cfg, verbose=False)
@@ -128,28 +130,30 @@ def test_split_records_path_a(labeled_records, config_factory):
 
 
 def test_split_records_path_b(labeled_records, config_factory):
-    cfg = config_factory(verify_with="levenshtein",
-                         similarity_threshold=0.85,
-                         prefilter_threshold=0.4)
+    cfg = config_factory(
+        verify_with="levenshtein", similarity_threshold=0.85, prefilter_threshold=0.4
+    )
     splits = split_records(labeled_records, cfg, verbose=False)
     total = sum(len(v) for v in splits.values())
     assert total == len(labeled_records)
 
 
 def test_split_records_path_ab(labeled_records, config_factory):
-    cfg = config_factory(reduced_alphabet="groups5",
-                         verify_with="levenshtein",
-                         similarity_threshold=0.85,
-                         prefilter_threshold=0.3)
+    cfg = config_factory(
+        reduced_alphabet="groups5",
+        verify_with="levenshtein",
+        similarity_threshold=0.85,
+        prefilter_threshold=0.3,
+    )
     splits = split_records(labeled_records, cfg, verbose=False)
     total = sum(len(v) for v in splits.values())
     assert total == len(labeled_records)
 
 
 def test_split_records_keeps_homolog_family_together(
-        homologous_records, config_factory):
-    cfg = config_factory(similarity_threshold=0.7,
-                         kmer_sizes=[3])
+    homologous_records, config_factory
+):
+    cfg = config_factory(similarity_threshold=0.7, kmer_sizes=[3])
     splits = split_records(homologous_records, cfg, verbose=False)
     family = {0, 1, 2, 3}
     for _name, recs in splits.items():

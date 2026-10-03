@@ -1,16 +1,16 @@
 """Tests for cerberos.pipeline."""
+
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 
-from cerberos.config import RunConfig
-from cerberos.pipeline import _load_check_dir, run_audit, run_split
-
+from cerberos_peptide_splitter.config import RunConfig
+from cerberos_peptide_splitter.pipeline import _load_check_dir, run_audit, run_split
 
 # ─────────────────────── _load_check_dir ───────────────────────
+
 
 def test_load_check_dir_finds_standard_names(sample_splits_dir):
     splits = _load_check_dir(sample_splits_dir)
@@ -42,6 +42,7 @@ def test_load_check_dir_accepts_alt_extensions(tmp_path):
 
 
 # ─────────────────────── run_split ───────────────────────
+
 
 def test_run_split_creates_all_outputs(tmp_path, sample_labeled_fasta_path):
     out = tmp_path / "out"
@@ -92,6 +93,7 @@ def test_run_split_deterministic(tmp_path, sample_labeled_fasta_path):
 
 
 # ─────────────────────── run_audit ───────────────────────
+
 
 def test_run_audit_produces_report_and_stats(tmp_path, sample_splits_dir):
     out = tmp_path / "audit"

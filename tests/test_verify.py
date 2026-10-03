@@ -1,16 +1,17 @@
 """Tests for cerberos.verify — Path B."""
+
 from __future__ import annotations
 
 import pytest
 
-from cerberos.verify import (
+from cerberos_peptide_splitter.verify import (
     levenshtein,
     levenshtein_identity,
     verify_pair,
 )
 
-
 # ─────────────────────── levenshtein ───────────────────────
+
 
 def test_levenshtein_identical():
     assert levenshtein("ACDEF", "ACDEF") == 0
@@ -63,6 +64,7 @@ def test_levenshtein_classic_kitten_sitting():
 
 # ─────────────────────── levenshtein_identity ───────────────────────
 
+
 def test_identity_identical_is_one():
     assert levenshtein_identity("ACDEF", "ACDEF") == 1.0
 
@@ -92,11 +94,16 @@ def test_identity_short_pair_is_easily_inflated():
 
 # ─────────────────────── verify_pair dispatch ───────────────────────
 
+
 def test_verify_pair_kmer_exact_identical():
     score = verify_pair(
-        raw_a="ACDEFG", raw_b="ACDEFG",
-        transformed_a="ACDEFG", transformed_b="ACDEFG",
-        kmer_sizes=[3], metric="kmer-exact", threshold=0.9,
+        raw_a="ACDEFG",
+        raw_b="ACDEFG",
+        transformed_a="ACDEFG",
+        transformed_b="ACDEFG",
+        kmer_sizes=[3],
+        metric="kmer-exact",
+        threshold=0.9,
     )
     assert score == 1.0
 
@@ -104,9 +111,13 @@ def test_verify_pair_kmer_exact_identical():
 def test_verify_pair_kmer_exact_uses_transformed():
     # raw sequences differ, transformed are identical → kmer-exact = 1.0
     score = verify_pair(
-        raw_a="KWKLFKK", raw_b="RWRLFRR",
-        transformed_a="+++H+++", transformed_b="+++H+++",
-        kmer_sizes=[3], metric="kmer-exact", threshold=0.9,
+        raw_a="KWKLFKK",
+        raw_b="RWRLFRR",
+        transformed_a="+++H+++",
+        transformed_b="+++H+++",
+        kmer_sizes=[3],
+        metric="kmer-exact",
+        threshold=0.9,
     )
     assert score == 1.0
 
@@ -114,9 +125,13 @@ def test_verify_pair_kmer_exact_uses_transformed():
 def test_verify_pair_kmer_exact_max_over_k():
     """Max over all requested k values should be returned."""
     score = verify_pair(
-        raw_a="ACDEFG", raw_b="ACDEFG",
-        transformed_a="ACDEFG", transformed_b="ACDEFG",
-        kmer_sizes=[2, 3, 5], metric="kmer-exact", threshold=0.9,
+        raw_a="ACDEFG",
+        raw_b="ACDEFG",
+        transformed_a="ACDEFG",
+        transformed_b="ACDEFG",
+        kmer_sizes=[2, 3, 5],
+        metric="kmer-exact",
+        threshold=0.9,
     )
     assert score == 1.0
 
@@ -124,18 +139,26 @@ def test_verify_pair_kmer_exact_max_over_k():
 def test_verify_pair_levenshtein_uses_raw():
     # transformed sequences are identical; levenshtein uses raw
     score = verify_pair(
-        raw_a="ACDEFG", raw_b="ACDDFG",   # 1 sub → identity 5/6
-        transformed_a="H--HHH", transformed_b="H--HHH",
-        kmer_sizes=[3], metric="levenshtein", threshold=0.5,
+        raw_a="ACDEFG",
+        raw_b="ACDDFG",  # 1 sub → identity 5/6
+        transformed_a="H--HHH",
+        transformed_b="H--HHH",
+        kmer_sizes=[3],
+        metric="levenshtein",
+        threshold=0.5,
     )
     assert abs(score - (5 / 6)) < 1e-9
 
 
 def test_verify_pair_levenshtein_rejects_when_below_threshold():
     score = verify_pair(
-        raw_a="ACDEFG", raw_b="YYYYYY",
-        transformed_a="ACDEFG", transformed_b="YYYYYY",
-        kmer_sizes=[3], metric="levenshtein", threshold=0.9,
+        raw_a="ACDEFG",
+        raw_b="YYYYYY",
+        transformed_a="ACDEFG",
+        transformed_b="YYYYYY",
+        kmer_sizes=[3],
+        metric="levenshtein",
+        threshold=0.9,
     )
     assert score == 0.0
 
@@ -143,7 +166,11 @@ def test_verify_pair_levenshtein_rejects_when_below_threshold():
 def test_verify_pair_unknown_metric_raises():
     with pytest.raises(ValueError):
         verify_pair(
-            raw_a="A", raw_b="A",
-            transformed_a="A", transformed_b="A",
-            kmer_sizes=[1], metric="blosum62", threshold=0.9,
+            raw_a="A",
+            raw_b="A",
+            transformed_a="A",
+            transformed_b="A",
+            kmer_sizes=[1],
+            metric="blosum62",
+            threshold=0.9,
         )

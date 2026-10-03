@@ -1,20 +1,33 @@
 """Tests for cerberos.features."""
+
 from __future__ import annotations
 
 import math
 
 import numpy as np
 
-from cerberos.features import AA20, biochem_features, build_feature_matrix
+from cerberos_peptide_splitter.features import (
+    AA20,
+    biochem_features,
+    build_feature_matrix,
+)
 
 
 def test_has_expected_keys():
     f = biochem_features("ACDEFGHIKL")
-    for key in ("length", "hydrophobicity", "charge",
-                "aromaticity", "mw",
-                "grp_aromatic", "grp_aliphatic",
-                "grp_polar", "grp_positive",
-                "grp_negative", "grp_special"):
+    for key in (
+        "length",
+        "hydrophobicity",
+        "charge",
+        "aromaticity",
+        "mw",
+        "grp_aromatic",
+        "grp_aliphatic",
+        "grp_polar",
+        "grp_positive",
+        "grp_negative",
+        "grp_special",
+    ):
         assert key in f
 
 

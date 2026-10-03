@@ -1,3 +1,2 @@
 -r requirements.txt
-matplotlib>=3.5
-scipy>=1.7
+matplotlib>=3.9

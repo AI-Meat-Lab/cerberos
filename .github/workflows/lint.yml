@@ -1,37 +1,32 @@
 name: Lint
-
 on:
   push:
     branches: [main, master, develop]
   pull_request:
-
 concurrency:
   group: lint-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   lint:
-    name: Lint & type-check
+    name: Lint, format, and type-check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
       - name: Install tools
         run: |
           python -m pip install --upgrade pip
-          pip install "ruff>=0.6" mypy numpy
-
-      - name: ruff lint
-        run: ruff check cerberos/ tests/
-
-      - name: ruff format --check
-        run: ruff format --check cerberos/ tests/
-
+          python -m pip install "ruff>=0.6" "black>=24" "isort>=5.13" "mypy>=1.10" "numpy>=1.23"
+      - name: Ruff lint
+        run: ruff check cerberos_peptide_splitter/ tests/
+      - name: Ruff format
+        run: ruff format --check cerberos_peptide_splitter/ tests/
+      - name: Black format
+        run: black --check cerberos_peptide_splitter/ tests/
+      - name: isort imports
+        run: isort --check-only cerberos_peptide_splitter/ tests/
       - name: mypy
-        run: mypy cerberos/ --ignore-missing-imports --no-strict-optional
-        continue-on-error: true
+        run: mypy cerberos_peptide_splitter/ --ignore-missing-imports --no-strict-optional

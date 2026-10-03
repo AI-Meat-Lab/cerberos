@@ -1,8 +1,8 @@
 """Shared pytest fixtures for the Cerberos test suite."""
+
 from __future__ import annotations
 
 import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -12,9 +12,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import cerberos  # noqa: E402
-from cerberos.config import RunConfig  # noqa: E402
-
+import cerberos_peptide_splitter as cerberos  # noqa: E402
+from cerberos_peptide_splitter.config import RunConfig  # noqa: E402
 
 # ────────────────────────────────────────────────────────────
 # Paths
@@ -50,7 +49,7 @@ def sample_conservative_fasta_path() -> str:
 
 @pytest.fixture
 def sample_splits_dir() -> str:
-    return str(DATA_DIR / "splits")
+    return str(DATA_DIR)
 
 
 # ────────────────────────────────────────────────────────────
@@ -95,10 +94,15 @@ def labeled_records():
 def homologous_records():
     """A tight family of 4 duplicates + 5 near-duplicates + 3 outliers."""
     fam = [(f"fam{i}", None, "KWKLFKKIEKVGQNIRDGIIK") for i in range(4)]
-    near = [(f"near{i}", None, "KWKLFKKIEKVGQNIRDGII" + aa)
-            for i, aa in enumerate("ACDEF")]
-    out = [(f"out{i}", None, s) for i, s in enumerate(
-        ["MKTIIALSYIFCLVFA", "YYYYYYYYYYYYYYY", "DDDEEERRRKKKHHH"])]
+    near = [
+        (f"near{i}", None, "KWKLFKKIEKVGQNIRDGII" + aa) for i, aa in enumerate("ACDEF")
+    ]
+    out = [
+        (f"out{i}", None, s)
+        for i, s in enumerate(
+            ["MKTIIALSYIFCLVFA", "YYYYYYYYYYYYYYY", "DDDEEERRRKKKHHH"]
+        )
+    ]
     return fam + near + out
 
 
@@ -106,7 +110,7 @@ def homologous_records():
 def conservative_variants():
     """Two peptides: identical except K↔R substitutions."""
     return [
-        ("raw",  None, "KWKLFKKIEKVGQNIRDGIIK"),
+        ("raw", None, "KWKLFKKIEKVGQNIRDGIIK"),
         ("conservative", None, "RWRLFRRIERVGQNIRDGIIK"),
     ]
 
@@ -116,7 +120,7 @@ def single_sub_pair():
     """Two 21-mers differing by exactly one residue at the end."""
     return [
         ("a", None, "KWKLFKKIEKVGQNIRDGIIK"),
-        ("b", None, "KWKLFKKIEKVGQNIRDGIIR"),   # last K->R
+        ("b", None, "KWKLFKKIEKVGQNIRDGIIR"),  # last K->R
     ]
 
 
@@ -160,12 +164,14 @@ def write_fasta(tmp_path):
         path = tmp_path / name
         cerberos.write_fasta(records, str(path))
         return str(path)
+
     return _write
 
 
 @pytest.fixture
 def write_split_dir(tmp_path):
     """Write train/val/test FASTAs into a subdir, return its path."""
+
     def _write(train, val, test, name="splits"):
         d = tmp_path / name
         d.mkdir()
@@ -173,6 +179,7 @@ def write_split_dir(tmp_path):
         cerberos.write_fasta(val, str(d / "val.fasta"))
         cerberos.write_fasta(test, str(d / "test.fasta"))
         return str(d)
+
     return _write
 
 
@@ -182,6 +189,7 @@ def write_split_dir(tmp_path):
 def _has_mpl() -> bool:
     try:
         import matplotlib  # noqa: F401
+
         return True
     except Exception:
         return False
@@ -190,15 +198,14 @@ def _has_mpl() -> bool:
 def _has_scipy() -> bool:
     try:
         import scipy  # noqa: F401
+
         return True
     except Exception:
         return False
 
 
-requires_mpl = pytest.mark.skipif(not _has_mpl(),
-                                  reason="matplotlib not installed")
-requires_scipy = pytest.mark.skipif(not _has_scipy(),
-                                    reason="scipy not installed")
+requires_mpl = pytest.mark.skipif(not _has_mpl(), reason="matplotlib not installed")
+requires_scipy = pytest.mark.skipif(not _has_scipy(), reason="scipy not installed")
 
 
 # ────────────────────────────────────────────────────────────

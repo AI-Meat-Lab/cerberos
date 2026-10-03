@@ -1,12 +1,12 @@
 """Tests for cerberos.diagnostics."""
+
 from __future__ import annotations
 
 import json
 
 import numpy as np
-import pytest
 
-from cerberos.diagnostics import (
+from cerberos_peptide_splitter.diagnostics import (
     _mean_pairwise_jaccard,
     _sample,
     build_report,
@@ -15,10 +15,8 @@ from cerberos.diagnostics import (
     summarize,
 )
 
-from tests.conftest import requires_scipy
-
-
 # ─────────────────────── sampling ───────────────────────
+
 
 def test_sample_returns_all_below_cap():
     rng = np.random.RandomState(0)
@@ -32,6 +30,7 @@ def test_sample_caps_length():
 
 
 # ─────────────────────── pairwise ───────────────────────
+
 
 def test_mean_pairwise_same():
     seqs = ["ACDEFGHIKL", "ACDEFGHIKM"]
@@ -51,25 +50,32 @@ def test_mean_pairwise_different():
 def test_pairwise_similarity_structure(labeled_records):
     splits = {
         "train": labeled_records[:6],
-        "val":   labeled_records[6:9],
-        "test":  labeled_records[9:],
+        "val": labeled_records[6:9],
+        "test": labeled_records[9:],
     }
     out = pairwise_similarity(splits, k=3, max_per_split=10, seed=0)
-    for key in ("train-train", "train-val", "train-test", "val-val",
-                "val-test", "test-test"):
+    for key in (
+        "train-train",
+        "train-val",
+        "train-test",
+        "val-val",
+        "val-test",
+        "test-test",
+    ):
         assert key in out
     assert all(0.0 <= v["mean_jaccard"] <= 1.0 for v in out.values())
 
 
 # ─────────────────────── feature_ks ───────────────────────
 
-@requires_scipy
+
 def test_feature_ks_shapes(labeled_records):
-    from cerberos.features import build_feature_matrix
+    from cerberos_peptide_splitter.features import build_feature_matrix
+
     splits = {
         "train": labeled_records[:6],
-        "val":   labeled_records[6:9],
-        "test":  labeled_records[9:],
+        "val": labeled_records[6:9],
+        "test": labeled_records[9:],
     }
     _, names = build_feature_matrix(labeled_records)
     ks, wd, pairs = feature_ks(splits, names)
@@ -81,12 +87,13 @@ def test_feature_ks_shapes(labeled_records):
 
 # ─────────────────────── summarize ───────────────────────
 
+
 def test_summarize_structure(labeled_records, config_factory):
     cfg = config_factory()
     splits = {
         "train": labeled_records[:6],
-        "val":   labeled_records[6:9],
-        "test":  labeled_records[9:],
+        "val": labeled_records[6:9],
+        "test": labeled_records[9:],
     }
     stats, feats = summarize(splits, cfg, kmer_k=3, sim_plot_cap=20)
     assert stats["sizes"] == {"train": 6, "val": 3, "test": 3}
@@ -102,23 +109,26 @@ def test_summarize_detects_homology_leakage():
     recs = [(f"p{i}", 0, "ACDEFGHIKL") for i in range(20)]
     splits = {
         "train": recs[:10],
-        "val":   recs[:5],
-        "test":  recs[:10],
+        "val": recs[:5],
+        "test": recs[:10],
     }
-    from cerberos.config import RunConfig
+    from cerberos_peptide_splitter.config import RunConfig
+
     stats, _ = summarize(splits, RunConfig(), kmer_k=3, sim_plot_cap=20)
     assert stats["homology_warnings"]
 
 
 def test_summarize_reports_clustering_mode(labeled_records, config_factory):
-    cfg = config_factory(reduced_alphabet="groups5",
-                         verify_with="levenshtein",
-                         prefilter_threshold=0.3,
-                         similarity_threshold=0.85)
+    cfg = config_factory(
+        reduced_alphabet="groups5",
+        verify_with="levenshtein",
+        prefilter_threshold=0.3,
+        similarity_threshold=0.85,
+    )
     splits = {
         "train": labeled_records[:6],
-        "val":   labeled_records[6:9],
-        "test":  labeled_records[9:],
+        "val": labeled_records[6:9],
+        "test": labeled_records[9:],
     }
     stats, _ = summarize(splits, cfg, kmer_k=3, sim_plot_cap=20)
     cm = stats["clustering_mode"]
@@ -129,19 +139,22 @@ def test_summarize_reports_clustering_mode(labeled_records, config_factory):
 
 # ─────────────────────── report ───────────────────────
 
+
 def test_build_report_sections(labeled_records, config_factory):
     cfg = config_factory()
     splits = {
         "train": labeled_records[:6],
-        "val":   labeled_records[6:9],
-        "test":  labeled_records[9:],
+        "val": labeled_records[6:9],
+        "test": labeled_records[9:],
     }
     stats, _ = summarize(splits, cfg, kmer_k=3, sim_plot_cap=20)
     report = build_report(stats, mode="split")
-    for token in ("Clustering configuration:",
-                  "Split sizes:",
-                  "Length stats:",
-                  "Pairwise k-mer Jaccard"):
+    for token in (
+        "Clustering configuration:",
+        "Split sizes:",
+        "Length stats:",
+        "Pairwise k-mer Jaccard",
+    ):
         assert token in report
 
 
@@ -149,9 +162,31 @@ def test_build_report_audit_mode(labeled_records, config_factory):
     cfg = config_factory()
     splits = {
         "train": labeled_records[:6],
-        "val":   labeled_records[6:9],
-        "test":  labeled_records[9:],
+        "val": labeled_records[6:9],
+        "test": labeled_records[9:],
     }
     stats, _ = summarize(splits, cfg, kmer_k=3, sim_plot_cap=20)
     report = build_report(stats, mode="audit")
     assert "audit mode" in report
+
+
+def test_empty_splits_produce_strict_json_without_nan(config_factory):
+    stats, _ = summarize(
+        {"train": [], "val": [], "test": []},
+        config_factory(),
+        kmer_k=3,
+    )
+    json.dumps(stats, allow_nan=False)
+    assert stats["similarity"]["train-train"]["mean_jaccard"] is None
+
+
+def test_empirical_distance_implementations_are_exact():
+    from cerberos_peptide_splitter.diagnostics import (
+        _ks_statistic,
+        _wasserstein_distance,
+    )
+
+    left = np.asarray([0.0, 0.0])
+    right = np.asarray([1.0, 1.0])
+    assert _ks_statistic(left, right) == 1.0
+    assert _wasserstein_distance(left, right) == 1.0

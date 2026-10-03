@@ -1,16 +1,17 @@
 """Tests for cerberos.alphabet — Path A."""
+
 from __future__ import annotations
 
 import pytest
 
-from cerberos.alphabet import (
+from cerberos_peptide_splitter.alphabet import (
     apply_reduced_alphabet,
     get_mapping,
     is_reduced,
 )
 
-
 # ─────────────────────── get_mapping ───────────────────────
+
 
 def test_get_mapping_none_returns_none():
     assert get_mapping("none") is None
@@ -38,6 +39,7 @@ def test_get_mapping_unknown_raises():
 
 
 # ─────────────────────── apply ───────────────────────
+
 
 def test_apply_none_is_identity():
     assert apply_reduced_alphabet("ACDEF", "none") == "ACDEF"
@@ -83,6 +85,7 @@ def test_conservative_variants_differ_under_identity():
 
 
 # ─────────────────────── is_reduced ───────────────────────
+
 
 def test_is_reduced_none_false():
     assert is_reduced("none") is False

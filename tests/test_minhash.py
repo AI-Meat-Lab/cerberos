@@ -1,17 +1,18 @@
 """Tests for cerberos.minhash."""
+
 from __future__ import annotations
 
 import numpy as np
 
-from cerberos.kmers import jaccard, kmers
-from cerberos.minhash import (
+from cerberos_peptide_splitter.kmers import jaccard
+from cerberos_peptide_splitter.minhash import (
     estimate_jaccard,
     lsh_candidates,
     minhash_sketch,
 )
 
-
 # ─────────────────────── sketch ───────────────────────
+
 
 def test_sketch_shape_dtype():
     sk = minhash_sketch({"AA", "AC"}, num_hashes=16, seed=1)
@@ -42,9 +43,7 @@ def test_sketch_estimates_jaccard_within_tolerance():
     rng = np.random.RandomState(0)
     alphabet = list("ACDEFGHIKLMNPQRSTVWY")
     a = {"".join(rng.choice(alphabet, 3)) for _ in range(400)}
-    b = set(list(a)[:200]) | {
-        "".join(rng.choice(alphabet, 3)) for _ in range(200)
-    }
+    b = set(list(a)[:200]) | {"".join(rng.choice(alphabet, 3)) for _ in range(200)}
     true_j = jaccard(a, b)
     sk_a = minhash_sketch(a, 512, 3)
     sk_b = minhash_sketch(b, 512, 3)
@@ -53,6 +52,7 @@ def test_sketch_estimates_jaccard_within_tolerance():
 
 
 # ─────────────────────── LSH ───────────────────────
+
 
 def test_lsh_finds_near_duplicates():
     sets = [
@@ -76,13 +76,13 @@ def test_lsh_no_far_pair():
 
 
 def test_lsh_singletons_no_pairs():
-    sketches = np.array([minhash_sketch({"AA"}, 16, 0),
-                         minhash_sketch({"ZZ"}, 16, 0)])
+    sketches = np.array([minhash_sketch({"AA"}, 16, 0), minhash_sketch({"ZZ"}, 16, 0)])
     pairs = lsh_candidates(sketches, 16, rows=4)
     assert pairs == set()
 
 
 # ─────────────────────── estimate_jaccard ───────────────────────
+
 
 def test_estimate_identical_sketch_is_one():
     sk = minhash_sketch({"AA", "AC"}, 32, 0)

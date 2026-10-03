@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v0.0.1b"
+      - "v*"
 
 permissions:
   contents: write
@@ -28,6 +28,18 @@ jobs:
           pip install -r requirements-dev.txt
           pip install -e .
 
+      - name: Verify tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          version = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          tag = os.environ["RELEASE_TAG"].removeprefix("v")
+          if tag != version:
+              raise SystemExit(f"tag {tag!r} does not match package version {version!r}")
+          PY
       - name: Run tests before release
         run: pytest -q --timeout=300
 
