@@ -388,6 +388,7 @@ def make_plots(
     cluster_labels=None,
     clustering=None,
     threshold: float = 0.7,
+    include_umap: bool = False,
 ) -> None:
     import os
 
@@ -406,7 +407,8 @@ def make_plots(
         k=kmer_k,
         cluster_labels=cluster_labels,
     )
-    _umap_projection(splits, os.path.join(p, "umap_projection.png"), k=kmer_k)
+    if include_umap:
+        _umap_projection(splits, os.path.join(p, "umap_projection.png"), k=kmer_k)
     _similarity_hist(splits, os.path.join(p, "pairwise_similarity.png"), k=kmer_k)
     if clustering is not None:
         _qq_features(splits, os.path.join(p, "feature_qq.png"))

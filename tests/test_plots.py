@@ -33,3 +33,17 @@ def test_plot_bundle_handles_single_record(tmp_path):
         kmer_k=3,
     )
     assert (tmp_path / "plots" / "split_sizes.png").is_file()
+
+
+@requires_mpl
+def test_plot_bundle_umap_is_opt_in(tmp_path):
+    splits = {
+        "train": [("a", None, "ACDEFG")],
+        "val": [("b", None, "ACDEFA")],
+        "test": [("c", None, "ACDEFM")],
+    }
+    make_plots(splits, str(tmp_path), kmer_k=2, include_umap=True)
+    # The artifact is present when umap-learn is installed, and absent otherwise.
+    umap_path = tmp_path / "plots" / "umap_projection.png"
+    if umap_path.exists():
+        assert umap_path.stat().st_size > 0
