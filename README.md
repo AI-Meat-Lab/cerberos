@@ -1,6 +1,6 @@
 # cerberos
 
-**A local, Python-based tool for approximate homology-aware splitting and descriptive diagnostics of peptide/protein FASTA datasets.**
+**A local Python tool for similarity-aware splitting and descriptive diagnostics of peptide and protein FASTA datasets.**
 
 [![CI](https://github.com/AI-Meat-Lab/cerberos/actions/workflows/ci.yml/badge.svg)](https://github.com/AI-Meat-Lab/cerberos/actions/workflows/ci.yml)
 [![Lint](https://github.com/AI-Meat-Lab/cerberos/actions/workflows/lint.yml/badge.svg)](https://github.com/AI-Meat-Lab/cerberos/actions/workflows/lint.yml)
@@ -8,15 +8,11 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Cerberos reads a FASTA file, generates approximate sequence-similarity clusters, and assigns complete clusters to train, validation, and test splits. It can also describe an existing set of three splits. It is designed to help identify obvious near-duplicate leakage. It is not a substitute for a validated alignment-based homology search and does not guarantee leakage-free evaluation.
+Cerberos reads a FASTA file, generates approximate sequence-similarity clusters, and assigns complete clusters to train, validation, and test splits. It can also audit an existing set of three splits. It is designed to help identify near-duplicate leakage. It is not a substitute for a validated alignment-based homology search and does not guarantee leakage-free evaluation.
 
-For higher-assurance runs, `--strict-clustering` makes the split fail rather than
-silently falling back to an all-singleton/random-looking result. The optional
-`--balance` mode assigns complete clusters using both target split sizes and
-normalized biochemical feature means; cluster integrity always takes priority
-over exact proportions.
+For stricter runs, `--strict-clustering` makes the split fail rather than silently falling back to an all-singleton or effectively random result. The optional `--balance` mode assigns complete clusters using both target split sizes and normalized biochemical feature distributions (see `--balance-metric`); cluster integrity always takes priority over exact proportions.
 
-The package requires NumPy. Plotting is an optional Matplotlib extra. KS and Wasserstein descriptive distances are computed with NumPy and do not require SciPy. Cerberos runs locally and does not call external services or external sequence-search binaries.
+The package requires NumPy. Plotting is an optional Matplotlib extra. KS and Wasserstein distances are computed with NumPy and do not require SciPy. Cerberos runs locally and does not call external services or sequence-search binaries.
 
 ## Contents
 
@@ -79,7 +75,7 @@ Split one FASTA file using defaults:
 cerberos-peptide-splitter split --input peptides.fasta --output-dir splits/
 ```
 
-For a sensitivity-oriented reduced-alphabet pass followed by exact raw-sequence edit-distance verification:
+For a reduced-alphabet, edit-distance-verified run:
 
 ```bash
 cerberos-peptide-splitter split \
@@ -123,13 +119,13 @@ Rules:
 
 ### Outputs
 
-`split` writes `train.fasta`, `val.fasta`, `test.fasta`, `report.txt`, `stats.json`, and, when Matplotlib is installed, a `plots/` directory. `audit` reads FASTAs and writes only report, statistics, and plots; it does not overwrite the input FASTAs.
+`split` writes `train.fasta`, `val.fasta`, `test.fasta`, `report.txt`, `report.html`, `stats.json`, and, when Matplotlib is installed, a `plots/` directory. `audit` reads FASTAs and writes only report, statistics, and plots; it does not overwrite the input FASTAs.
 
-The audit command recognizes `train.fasta`/`.fa`/`.faa`, `val.fasta`/`.fa`/`.faa` or `valid.fasta`/`.fa`, and `test.fasta`/`.fa`/`.faa`.
+The audit command recognizes `train.fasta`/`.fa`/`.faa`, `val.fasta`/`.fa`/`.faa` or `valid.fasta`/`.fa`/`.faa`, and `test.fasta`/`.fa`/`.faa`.
 
 `stats.json` contains the effective configuration, multi-LSH candidate-generation counts, exact-recall benchmark, accepted/rejected score histograms, cluster-size distribution, split sizes and label counts, length and feature summaries, sampled pairwise k-mer Jaccard summaries, empirical KS D statistics, Wasserstein distances, nearest-neighbor leakage-risk distributions, cluster-quality scores, size confidence intervals, and heuristic warnings. `report.txt` and `report.html` provide human-readable versions. Empty samples are represented with JSON `null`, never non-standard `NaN` literals.
 
-For large files, reduce the search ceiling explicitly, for example with `--max-candidate-pairs 100000`. This bounds candidate-pair verification, but a smaller value increases the chance that related sequences are not grouped. Always check `candidate_generation` in `stats.json` and the warning in `report.txt` to see whether sampling or the cap affected a run. For small high-assurance datasets, use `--exact-mode`; for sensitivity analysis, use multiple `--lsh-rows` values and inspect `candidate_recall_benchmark`.
+For large files, reduce the search ceiling explicitly, for example with `--max-candidate-pairs 100000`. This bounds candidate-pair verification, but a smaller value increases the chance that related sequences are not grouped. Always check `candidate_generation` in `stats.json` and the warning in `report.txt` to see whether sampling or the cap affected a run. For small datasets where exhaustive comparison is feasible, use `--exact-mode`; for sensitivity analysis, use multiple `--lsh-rows` values and inspect `candidate_recall_benchmark`.
 
 ## CLI reference
 
@@ -144,19 +140,27 @@ For large files, reduce the search ceiling explicitly, for example with `--max-c
 | `--val-pct F` | `0.10` | Validation proportion. |
 | `--test-pct F` | `0.10` | Test proportion. |
 | `--no-clustering` | off | Use random splitting instead of grouping candidate homologs. |
-| `--similarity-threshold F` | `0.70` | MinHash estimate threshold if no verifier is selected; final score threshold otherwise. Must be in [0, 1]. |
+| `--similarity-threshold F` | `0.50` | MinHash estimate threshold if no verifier is selected; final score threshold otherwise. Must be in [0, 1]. Lower values reduce near-duplicate leakage at the cost of larger clusters. |
 | `--kmer-sizes CSV` | `3` | Positive comma-separated k-mer sizes. |
 | `--num-hashes N` | `128` | MinHash signature size, at least 4. |
 | `--max-candidate-pairs N` | `250000` | Hard cap on candidate pairs examined across configured k-mer searches. Dense buckets are sampled deterministically. Lower caps use less time and memory but can miss related pairs. |
 | `--reduced-alphabet NAME` | `none` | `none`, `groups5`, or `groups7`; transform residues before candidate generation. |
 | `--verify-with NAME` | `none` | `none`, `kmer-exact`, or `levenshtein`. |
+| `--verification-metrics CSV` | empty | Combine `kmer-exact`, `containment`, `cosine`, and/or `levenshtein`. |
+| `--metric-aggregation NAME` | `max` | Combine metrics with `max`, `mean`, `vote`, or `weighted`. |
+| `--metric-weights CSV` | empty | Non-negative weights for weighted metric aggregation. |
 | `--prefilter-threshold F` | `0.30` | MinHash estimate threshold before deterministic verification; cannot exceed the final threshold. |
 | `--strict-clustering` | off | Fail if no accepted edges are found or too few sequences belong to non-singleton clusters. |
 | `--min-non-singleton-fraction F` | `0.05` | Minimum non-singleton sequence fraction required by strict mode. |
 | `--balance` | off | Use composition-aware whole-cluster assignment in addition to size targets. |
 | `--balance-weight F` | `1.0` | Weight of the normalized biochemical composition objective, from 0 to 1. |
+| `--balance-metric NAME` | `wasserstein` | Use `mean`, `wasserstein`, or `ks` distribution distance while assigning clusters. |
+| `--balance-report` | off | Emit normalized per-feature balance divergences and a PASS/FAIL summary. |
+| `--backend NAME` | `auto` | Use deterministic NumPy or optional CuPy MinHash sketching. |
+| `--external-clusters PATH` | none | Import an index-to-cluster JSON mapping or CSV with `index,cluster` columns. |
 | `--lsh-rows CSV` | `2,4,8` | Run several deterministic LSH band granularities and union their candidate sets. |
-| `--exact-mode` | off | Enumerate exact pairs when the active dataset is below `--exact-mode-max-sequences`. |
+| `--exact-mode` | off | Enumerate every exact pair when the active dataset is below `--exact-mode-max-sequences`; refuses to run if `--max-candidate-pairs` is smaller than `N*(N-1)/2`. This is O(N²) and intended for small datasets. |
+| `--exact-mode-max-sequences N` | — | Dataset size ceiling for `--exact-mode`. |
 | `--adaptive-threshold` | off | Select an Otsu threshold from observed candidate scores. |
 | `--cluster-method NAME` | `components` | Use connected components or deterministic label-propagation communities. |
 | `--short-peptide-mode NAME` | `warn` | Ignore, warn, or automatically use `groups5` for sequences shorter than the smallest k. |
@@ -183,8 +187,8 @@ Invalid CLI values and missing input files are reported as concise command-line 
 3. **Bounded LSH candidate generation.** The 128-hash default uses 32 bands of four rows. One band's buckets are processed at a time instead of retaining all pairs in memory. Under the ideal independent-MinHash model, a pair with transformed k-mer Jaccard `s` would be proposed with probability approximately `1 - (1 - s^4)^32`. This is a model-based retrieval probability, not a guarantee. Finite hash families, a partial final band for non-multiples of four, dense-bucket sampling, and the candidate budget change realized recall. Buckets of at most 128 sequences are fully enumerated; larger buckets use a deterministic sampled neighborhood. A default budget of 250,000 candidate pairs, deduplicated within each k search, is distributed over the configured k values. Dense-bucket sampling and budget exhaustion are reported in the log, `stats.json`, and `report.txt`. This avoids quadratic pair-set memory and limits verification work, but it can miss related pairs. A low prefilter threshold does **not** make candidate recall exhaustive.
 4. **Optional deterministic scoring.** `kmer-exact` calculates exact unique-k-mer Jaccard on transformed sequences and takes the maximum across configured k values. `levenshtein` calculates global unit-cost edit similarity on raw sequences, `1 - edit_distance / max(len(seq_a), len(seq_b))`. It is not alignment-based percent identity. Verification only scores pairs already proposed by LSH.
 5. **Connected components.** Accepted pair edges are merged with Union-Find. A connected component may include a pair of endpoints whose direct score is below the edge threshold, due to transitivity.
-6. **Whole-cluster split assignment.** Clusters are greedily assigned to minimize deviation from target split sizes. With `--balance`, the cost also includes normalized squared deviation of each split's biochemical feature means from the overall dataset mean. Preserving clusters takes priority over exact proportions. Clustered assignment does not stratify clusters by label. If `--no-clustering` is used, random splitting is applied; when every record has a label, label stratification is used.
-7. **Descriptive diagnostics.** Raw sequences are used for pairwise k-mer distances and biochemical features. Pairwise similarity is sampled per split for cost control. The report also includes cluster-size observability, split-to-overall KS/Wasserstein distances, and nearest-neighbor similarity from validation/test to train. These are descriptive, not inferential tests of model generalization.
+6. **Whole-cluster split assignment.** Clusters are greedily assigned with hard target-size bounds first; with `--balance`, Wasserstein/KS or mean composition objectives are optimized only among feasible placements. Local search preserves those bounds. If no feasible placement exists because a cluster is larger than the remaining capacity, the run records a size-constraint fallback. Strict runs also abort when post-assignment test-to-train nearest-neighbor similarity exceeds the configured threshold. By default, clustered assignment does not stratify clusters by label; use `--stratify-labels` to add label-proportion penalties. If `--no-clustering` is used, random splitting is applied; when every record has a label, label stratification is used.
+7. **Descriptive diagnostics.** Raw sequences are used for pairwise k-mer distances and biochemical features. Pairwise similarity is sampled per split for cost control. The report also includes cluster-size summaries, split-to-overall KS/Wasserstein distances, and nearest-neighbor similarity from validation/test to train. These are descriptive, not inferential tests of model generalization.
 
 ## Scientific definitions and limitations
 
@@ -193,11 +197,11 @@ Invalid CLI values and missing input files are reported as concise command-line 
 - **Levenshtein score:** global edit distance gives substitutions, insertions, and deletions unit cost. The normalized score is length-dependent, does not use BLOSUM/PAM scores, does not model local alignment, and should not be reported as biological percent identity.
 - **MinHash and LSH:** MinHash agreement approximates Jaccard under assumptions about the hash family; LSH is a probabilistic candidate filter. Dense buckets are sampled and the pair budget may stop a run early; either can omit a pair. The report flags those cases. A missed candidate cannot be recovered by verification. For high-assurance leakage control, use an alignment-based clustering or search method and inspect thresholds on a representative validation set.
 - **Clusters and thresholds:** threshold edges are transitively closed; therefore maximum pairwise within-cluster similarity is not guaranteed to meet the threshold. The cluster is an operational grouping for split assignment, not a statement that all members are homologous.
-- **Hydropathy:** mean Kyte-Doolittle score over canonical residues, using the original residue scale. This is a sequence summary, not a membrane topology prediction.
+- **Hydropathy:** mean Kyte-Doolittle score over canonical residues, using the original Kyte-Doolittle scale. This is a sequence summary, not a membrane topology prediction.
 - **Charge:** approximate peptide net charge at pH 7.0, including free termini and standard approximate side-chain pKa values via Henderson-Hasselbalch fractions. Local environment, terminal modifications, pKa shifts, and non-canonical residues are not modeled.
 - **Molecular mass:** average free-amino-acid masses are summed and 18.01528 Da is subtracted per peptide bond. Unknown symbols are assigned an approximate 110 Da free-residue mass. This is not monoisotopic mass and does not account for modifications, cyclization, disulfide formation, or unusual termini.
 - **Unknown symbols:** canonical frequencies and group fractions are per total sequence length; `unknown_fraction` reports positions outside the 20 canonical amino acids. Hydropathy averages canonical residues only.
-- **KS and Wasserstein:** the report stores empirical two-sample KS D and 1-D first Wasserstein distance per feature. No p-values or multiple-testing correction are computed. The `>0.20` warning is a heuristic and depends on sample size, feature scaling, and data context.
+- **KS and Wasserstein:** the report stores empirical two-sample KS D and first Wasserstein distance per feature. No p-values or multiple-testing correction are computed. The `>0.20` warning is a heuristic and depends on sample size, feature scaling, and data context.
 - **No leakage guarantee:** no warning is not proof of independence, no distribution test establishes OOD safety, and this software has not been validated as a clinical or regulatory assay.
 
 ## Python API
@@ -243,7 +247,7 @@ GitHub Actions checks a NumPy-only test path and a full-dependency test path acr
 ## References
 
 1. Kyte, J. & Doolittle, R. F. (1982). *A simple method for displaying the hydropathic character of a protein.* Journal of Molecular Biology 157(1), 105–132. [doi:10.1016/0022-2836(82)90515-0](https://doi.org/10.1016/0022-2836(82)90515-0); [PubMed](https://pubmed.ncbi.nlm.nih.gov/7108955/).
-2. LibreTexts, *What is a protein?* — peptide bond formation, residue masses, and water loss. [Section 1A](https://chem.libretexts.org/Bookshelves/Analytical_Chemistry/Supplemental_Modules_(Analytical_Chemistry)/Analytical_Sciences_Digital_Library/In_Class_Activities/Biological_Mass_Spectrometry%3A_Proteomics/Instructors_Manual/Section_1%3A_Proteins_and_Proteomics/Section_1A._What_is_a_protein).
+2. LibreTexts. *What is a protein?* — peptide bond formation, residue masses, and water loss. Analytical Sciences Digital Library. [Section 1A](https://chem.libretexts.org/Bookshelves/Analytical_Chemistry/Supplemental_Modules_(Analytical_Chemistry)/Analytical_Sciences_Digital_Library/In_Class_Activities/Biological_Mass_Spectrometry%3A_Proteomics/Instructors_Manual/Section_1%3A_Proteins_and_Proteomics/Section_1A._What_is_a_protein).
 3. Grimsley, G. R., Scholtz, J. M. & Pace, C. N. (2009). *A summary of the measured pK values of the ionizable groups in folded proteins.* Protein Science 18, 247–251. [doi:10.1002/pro.19](https://doi.org/10.1002/pro.19); [PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC2708032/).
 
 ## Release maintainers

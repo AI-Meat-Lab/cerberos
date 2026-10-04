@@ -60,6 +60,31 @@ def minhash_sketch(kmer_set: Set[str], num_hashes: int, seed: int) -> np.ndarray
     return result
 
 
+def minhash_sketch_backend(
+    kmer_set: Set[str], num_hashes: int, seed: int, backend: str = "numpy"
+) -> np.ndarray:
+    """Compute a sketch with optional CuPy acceleration and NumPy output."""
+    if backend != "cupy":
+        return minhash_sketch(kmer_set, num_hashes, seed)
+    try:
+        import cupy as cp
+    except ImportError as exc:
+        raise RuntimeError(
+            "backend='cupy' requires the optional cupy package; use backend='numpy'"
+        ) from exc
+    if not kmer_set:
+        return np.full(num_hashes, _PRIME, dtype=np.int64)
+    rng = np.random.RandomState(seed)
+    a = cp.asarray(rng.randint(1, _PRIME, size=num_hashes, dtype=np.int64))
+    b = cp.asarray(rng.randint(0, _PRIME, size=num_hashes, dtype=np.int64))
+    result = cp.full(num_hashes, _PRIME, dtype=cp.int64)
+    for kmer in kmer_set:
+        hashed = _hash_kmer(kmer) % _PRIME
+        values = (a * np.int64(hashed) + b) % _PRIME
+        result = cp.minimum(result, values)
+    return cp.asnumpy(result)
+
+
 def _bucket_pair_iterator(
     members: list[int], max_bucket_size: int, max_neighbors: int, seed: int
 ) -> Iterator[Tuple[int, int]]:

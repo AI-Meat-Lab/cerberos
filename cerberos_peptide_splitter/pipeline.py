@@ -52,6 +52,20 @@ def _write_outputs(
             _log(f"wrote {len(recs):>6d} -> {path}")
 
     stats, _ = summarize(splits, config, kmer_k=config.kmer_sizes[0])
+    leakage_max = (
+        stats.get("nearest_neighbor_similarity", {}).get("test_to_train", {}).get("max")
+    )
+    if (
+        mode == "split"
+        and config.strict_clustering
+        and leakage_max is not None
+        and leakage_max > config.similarity_threshold
+    ):
+        raise ValueError(
+            "Leakage detected: test_to_train max Jaccard = "
+            f"{leakage_max:.3f} > threshold = {config.similarity_threshold:.3f}. "
+            "Clustering failed to group these sequences."
+        )
     if mode == "split" and config.last_clustering_stats:
         stats["candidate_generation"] = dict(config.last_clustering_stats)
     with open(os.path.join(output_dir, "stats.json"), "w") as fh:
@@ -72,6 +86,10 @@ def _write_outputs(
             output_dir,
             kmer_k=config.kmer_sizes[0],
             cluster_labels=config.last_cluster_by_record_id,
+            clustering=config.last_clustering_stats,
+            threshold=config.last_clustering_stats.get(
+                "effective_similarity_threshold", config.similarity_threshold
+            ),
         )
     except Exception as exc:  # pragma: no cover
         _log(f"plots skipped: {exc}")

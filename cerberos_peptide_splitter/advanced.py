@@ -13,7 +13,12 @@ from .kmers import exact_kmer_jaccard
 
 
 def cross_validation_assignments(
-    clusters: Sequence[Sequence[int]], n: int, folds: int, seed: int = 42
+    clusters: Sequence[Sequence[int]],
+    n: int,
+    folds: int,
+    seed: int = 42,
+    records=None,
+    config: RunConfig | None = None,
 ) -> list[dict[int, str]]:
     """Assign intact clusters to deterministic K-fold train/test partitions."""
     if folds < 2:
@@ -27,9 +32,16 @@ def cross_validation_assignments(
     random.Random(seed).shuffle(ordered)
     ordered.sort(key=len, reverse=True)
     fold_sizes = [0] * folds
+    target_size = n / folds
     fold_clusters: list[list[Sequence[int]]] = [[] for _ in range(folds)]
     for cluster in ordered:
-        fold = min(range(folds), key=lambda index: (fold_sizes[index], index))
+        fold = min(
+            range(folds),
+            key=lambda index: (
+                abs(fold_sizes[index] + len(cluster) - target_size),
+                index,
+            ),
+        )
         fold_clusters[fold].append(cluster)
         fold_sizes[fold] += len(cluster)
     output = []

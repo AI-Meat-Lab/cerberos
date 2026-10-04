@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -178,6 +179,11 @@ def _cluster_quality(matrix, labels, max_n=1000):
         return {"silhouette": None, "davies_bouldin": None, "calinski_harabasz": None}
     matrix = np.asarray(matrix, dtype=float)
     labels = np.asarray(labels)
+    counts = Counter(labels.tolist())
+    non_singleton_mask = np.array([counts[label] > 1 for label in labels])
+    matrix, labels = matrix[non_singleton_mask], labels[non_singleton_mask]
+    if len(matrix) < 3 or len(set(labels)) < 2:
+        return {"silhouette": None, "davies_bouldin": None, "calinski_harabasz": None}
     if len(matrix) > max_n:
         indices = np.linspace(0, len(matrix) - 1, max_n, dtype=int)
         matrix, labels = matrix[indices], labels[indices]
@@ -340,6 +346,31 @@ def summarize(
         "features": feature_names,
         "splits": _feature_balance_against_overall(splits, feature_names),
     }
+    all_matrix = build_feature_matrix(
+        [record for records in splits.values() for record in records]
+    )[0]
+    ranges = (
+        np.ptp(all_matrix, axis=0) if all_matrix.size else np.ones(len(feature_names))
+    )
+    ranges = np.where(ranges > 1e-12, ranges, 1.0)
+    normalized = {}
+    max_divergence = 0.0
+    for split, values in stats["feature_balance"]["splits"].items():
+        scores = [
+            None if value is None else float(value) / ranges[index]
+            for index, value in enumerate(values["wasserstein"])
+        ]
+        normalized[split] = dict(zip(feature_names, scores, strict=True))
+        max_divergence = max(
+            max_divergence,
+            max((value for value in scores if value is not None), default=0.0),
+        )
+    stats["feature_balance"]["normalized_wasserstein"] = normalized
+    stats["feature_balance"]["summary"] = {
+        "status": "PASS" if max_divergence <= 0.10 else "FAIL",
+        "max_normalized_divergence": max_divergence,
+        "threshold": 0.10,
+    }
     stats["nearest_neighbor_similarity"] = {
         "metric": f"maximum exact {kmer_k}-mer Jaccard to reference split",
         "test_to_train": _nearest_neighbor_similarity(
@@ -357,6 +388,16 @@ def summarize(
         config.last_cluster_assignments,
         max_n=config.diagnostics_sample_size,
     )
+    if config.last_clustering_stats:
+        fraction = config.last_clustering_stats.get("non_singleton_fraction", 0.0)
+        stats["cluster_quality_meta"] = {
+            "non_singleton_fraction": fraction,
+            "warning": (
+                "clustering is sparse; quality metrics may be unreliable"
+                if fraction < 0.05
+                else None
+            ),
+        }
     if config.last_assignment_stats:
         stats["assignment"] = dict(config.last_assignment_stats)
     if config.last_clustering_stats:
@@ -434,8 +475,21 @@ def build_report(stats: dict, mode: str) -> str:
                 f"  singleton clusters   : {clustering.get('singleton_count', 'n/a')}",
                 f"  non-singleton fraction: {_format_number(clustering.get('non_singleton_fraction'), '.3f')}",
                 f"  size distribution    : {clustering.get('cluster_size_distribution', {})}",
+                f"  backend              : {clustering.get('backend_used', 'n/a')}",
             ]
         )
+        redundancy = clustering.get("preflight_redundancy")
+        if redundancy:
+            lines.append(
+                "  pre-flight redundancy : "
+                f"mean={_format_number(redundancy.get('mean_similarity'), '.3f')}, "
+                f"nonzero={_format_number(redundancy.get('fraction_nonzero'), '.3f')}"
+            )
+            if redundancy.get("fraction_nonzero", 0.0) == 0.0:
+                lines.append(
+                    "  WARNING: the pre-flight sample found no shared k-mer evidence; "
+                    "review k-mer sizes, alphabet, or dataset redundancy."
+                )
         if clustering.get("candidate_recall_benchmark") is not None:
             lines.append(
                 f"  exact benchmark recall: {clustering['candidate_recall_benchmark']:.3f}"
@@ -445,6 +499,21 @@ def build_report(stats: dict, mode: str) -> str:
             f"{clustering.get('accepted_score_histogram', [])} / "
             f"{clustering.get('rejected_score_histogram', [])}"
         )
+    balance_summary = stats.get("feature_balance", {}).get("summary", {})
+    if balance_summary:
+        lines.extend(
+            [
+                "",
+                "Compositional balance: "
+                f"{balance_summary.get('status', 'n/a')} "
+                f"(max normalized divergence = "
+                f"{balance_summary.get('max_normalized_divergence', 0.0):.3f}, "
+                f"threshold = {balance_summary.get('threshold', 0.10):.3f})",
+            ]
+        )
+    quality_warning = stats.get("cluster_quality_meta", {}).get("warning")
+    if quality_warning:
+        lines.append(f"WARNING: {quality_warning}.")
     assignment = stats.get("assignment", {})
     if assignment:
         lines.extend(

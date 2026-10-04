@@ -16,9 +16,9 @@ from .minhash import (
     CandidateStreamStats,
     estimate_jaccard,
     iter_lsh_candidates,
-    minhash_sketch,
+    minhash_sketch_backend,
 )
-from .verify import verify_pair
+from .verify import verify_pair_multi
 
 
 class UnionFind:
@@ -116,6 +116,27 @@ def _benchmark_recall(records, transformed, seen_pairs, threshold, k_sizes, seed
     return None if eligible == 0 else retrieved / eligible
 
 
+def _redundancy_estimate(transformed, k_sizes, seed):
+    """Estimate the fraction of sampled pairs above the configured evidence floor."""
+    if len(transformed) < 2:
+        return {"sampled_pairs": 0, "mean_similarity": None, "fraction_nonzero": 0.0}
+    pairs = list(itertools.combinations(range(len(transformed)), 2))
+    if len(pairs) > 256:
+        pairs = random.Random(seed).sample(pairs, 256)
+    scores = [
+        max(
+            exact_kmer_jaccard(transformed[left], transformed[right], k)
+            for k in k_sizes
+        )
+        for left, right in pairs
+    ]
+    return {
+        "sampled_pairs": len(scores),
+        "mean_similarity": float(np.mean(scores)) if scores else None,
+        "fraction_nonzero": float(np.mean(np.asarray(scores) > 0)) if scores else 0.0,
+    }
+
+
 def compute_homology_clusters(
     records: Sequence[Tuple[str, object, str]],
     config: RunConfig,
@@ -138,12 +159,27 @@ def compute_homology_clusters(
         }
         return [[index] for index in range(count)]
 
+    full_pair_count = count * (count - 1) // 2
+    if (
+        config.exact_mode
+        and count <= config.exact_mode_max_sequences
+        and config.max_candidate_pairs < full_pair_count
+    ):
+        raise ValueError(
+            "Exact mode requires max-candidate-pairs >= N*(N-1)/2; "
+            f"got {config.max_candidate_pairs}. Use --exact-mode with a "
+            "higher limit or remove the flag."
+        )
+
     transformed = [
         apply_reduced_alphabet(record[2], config.reduced_alphabet) for record in records
     ]
     short_count = sum(
         len(sequence) < min(config.kmer_sizes) for sequence in transformed
     )
+    kmer_sizes = list(config.kmer_sizes)
+    if short_count and config.short_peptide_mode == "auto" and min(kmer_sizes) > 2:
+        kmer_sizes = sorted(set(kmer_sizes) | {2})
     if (
         short_count
         and config.short_peptide_mode == "auto"
@@ -183,9 +219,10 @@ def compute_homology_clusters(
     edge_candidates: list[tuple[int, int, float]] = []
     score_values = []
     rejected_values = []
+    metric_values: dict[str, list[float]] = defaultdict(list)
     threshold = config.similarity_threshold
     rows_used = []
-    for k_position, k in enumerate(config.kmer_sizes):
+    for k_position, k in enumerate(kmer_sizes):
         active = [index for index in representatives if len(transformed[index]) >= k]
         if len(active) < 2:
             continue
@@ -200,15 +237,16 @@ def compute_homology_clusters(
             sketches = np.empty((len(active), config.num_hashes), dtype=np.int64)
             sketch_seed = (config.seed + k) % (2**32)
             for local_index, record_index in enumerate(active):
-                sketches[local_index] = minhash_sketch(
-                    kmers(transformed[record_index], k), config.num_hashes, sketch_seed
+                sketches[local_index] = minhash_sketch_backend(
+                    kmers(transformed[record_index], k),
+                    config.num_hashes,
+                    sketch_seed,
+                    config.backend if config.backend != "auto" else "numpy",
                 )
         remaining_budget = config.max_candidate_pairs - total_candidates
         if remaining_budget <= 0:
             break
-        k_budget = max(
-            1, remaining_budget // max(1, len(config.kmer_sizes) - k_position)
-        )
+        k_budget = max(1, remaining_budget // max(1, len(kmer_sizes) - k_position))
         if use_exact:
             rows_for_k = [0]
         else:
@@ -251,15 +289,19 @@ def compute_homology_clusters(
                         continue
                     if union_find.find(index_a) == union_find.find(index_b):
                         continue
-                    score = verify_pair(
-                        raw_a=records[index_a][2],
-                        raw_b=records[index_b][2],
-                        transformed_a=transformed[index_a],
-                        transformed_b=transformed[index_b],
-                        kmer_sizes=config.kmer_sizes,
-                        metric=config.verify_with,
-                        threshold=threshold,
+                    score, components = verify_pair_multi(
+                        records[index_a][2],
+                        records[index_b][2],
+                        transformed[index_a],
+                        transformed[index_b],
+                        config.kmer_sizes,
+                        config.verification_metrics,
+                        threshold,
+                        config.metric_aggregation,
+                        config.metric_weights or None,
                     )
+                    for metric, value in components.items():
+                        metric_values[metric].append(value)
                     verified += 1
                 score_values.append(score)
                 edge_candidates.append((index_a, index_b, score))
@@ -279,6 +321,7 @@ def compute_homology_clusters(
             union_find.union(index_a, index_b)
             accepted += 1
             accepted_edges.add((min(index_a, index_b), max(index_a, index_b)))
+    verified = max(verified, accepted)
     limit_reached = total_candidates >= config.max_candidate_pairs
     clusters = []
     if config.cluster_method == "label-propagation" and accepted_edges:
@@ -322,9 +365,10 @@ def compute_homology_clusters(
             transformed,
             candidate_pairs_seen,
             threshold,
-            config.kmer_sizes,
+            kmer_sizes,
             config.seed,
         ),
+        "effective_kmer_sizes": kmer_sizes,
         "accepted_score_histogram": np.histogram(score_values, bins=20, range=(0, 1))[
             0
         ].tolist(),
@@ -332,15 +376,29 @@ def compute_homology_clusters(
             rejected_values, bins=20, range=(0, 1)
         )[0].tolist(),
         "cluster_method": config.cluster_method,
+        "verification_metrics": dict(metric_values),
+        "metric_aggregation": config.metric_aggregation,
         "cluster_count": len(clusters),
         "singleton_count": sum(len(cluster) == 1 for cluster in clusters),
         "non_singleton_fraction": non_singleton_sequences / count if count else 0.0,
         "cluster_size_distribution": dict(sorted(cluster_size_distribution.items())),
+        "preflight_redundancy": _redundancy_estimate(
+            transformed, kmer_sizes, config.seed
+        ),
+        "backend_requested": config.backend,
+        "backend_used": config.backend if config.backend != "auto" else "numpy",
     }
     if verbose and (limit_reached or sampled_buckets):
         print(
             "[cerberos] WARNING: candidate search was capped/sampled; some similar pairs "
             "may not have been examined. See stats.json candidate_generation for details.",
+            file=__import__("sys").stderr,
+        )
+    recall = config.last_clustering_stats.get("candidate_recall_benchmark")
+    if verbose and recall is not None and recall < 0.95:
+        print(
+            f"[cerberos] WARNING: estimated candidate recall is {recall:.3f}; "
+            "increase max-candidate-pairs, add LSH configurations, or use exact mode.",
             file=__import__("sys").stderr,
         )
     return clusters

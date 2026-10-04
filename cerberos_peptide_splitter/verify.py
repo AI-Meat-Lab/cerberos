@@ -102,3 +102,41 @@ def verify_pair(
         max_distance = int((1.0 - threshold) * max_length)
         return levenshtein_identity(raw_a, raw_b, max_dist=max_distance)
     raise ValueError(f"unknown verify_with metric: {metric!r}")
+
+
+def verify_pair_multi(
+    raw_a: str,
+    raw_b: str,
+    transformed_a: str,
+    transformed_b: str,
+    kmer_sizes: list,
+    metrics: list[str],
+    threshold: float,
+    aggregation: str = "max",
+    weights: list[float] | None = None,
+) -> tuple[float, dict[str, float]]:
+    """Score a pair with several metrics and return aggregate plus components."""
+    if not metrics:
+        raise ValueError("metrics must not be empty")
+    scores = {
+        metric: verify_pair(
+            raw_a, raw_b, transformed_a, transformed_b, kmer_sizes, metric, threshold
+        )
+        for metric in metrics
+    }
+    values = list(scores.values())
+    if aggregation == "max":
+        aggregate = max(values)
+    elif aggregation == "mean":
+        aggregate = sum(values) / len(values)
+    elif aggregation == "vote":
+        aggregate = sum(value >= threshold for value in values) / len(values)
+    elif aggregation == "weighted":
+        if not weights or len(weights) != len(values) or sum(weights) <= 0:
+            raise ValueError("weighted aggregation requires positive metric_weights")
+        aggregate = sum(
+            value * weight for value, weight in zip(values, weights, strict=True)
+        ) / sum(weights)
+    else:
+        raise ValueError(f"unknown metric aggregation: {aggregation!r}")
+    return float(aggregate), scores

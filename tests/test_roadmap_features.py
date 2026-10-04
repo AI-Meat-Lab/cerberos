@@ -13,9 +13,12 @@ from cerberos_peptide_splitter import (
     hierarchical_cluster_views,
     load_cluster_assignments,
 )
+from cerberos_peptide_splitter.cluster import compute_homology_clusters
 from cerberos_peptide_splitter.config import RunConfig
 from cerberos_peptide_splitter.diagnostics import summarize
+from cerberos_peptide_splitter.minhash import minhash_sketch_backend
 from cerberos_peptide_splitter.split import assign_clusters, split_records
+from cerberos_peptide_splitter.verify import verify_pair_multi
 
 
 def test_strict_clustering_rejects_all_singletons(simple_records):
@@ -82,3 +85,60 @@ def test_advanced_cluster_utilities(labeled_records, tmp_path):
         ),
         list,
     )
+
+
+def test_multimetric_backend_and_distribution_balancing(labeled_records):
+    score, components = verify_pair_multi(
+        labeled_records[0][2],
+        labeled_records[1][2],
+        labeled_records[0][2],
+        labeled_records[1][2],
+        [2, 3],
+        ["containment", "cosine"],
+        0.5,
+        aggregation="mean",
+    )
+    assert 0.0 <= score <= 1.0
+    assert set(components) == {"containment", "cosine"}
+    assert (
+        minhash_sketch_backend({"AA", "AC"}, 8, 4)
+        == minhash_sketch_backend({"AA", "AC"}, 8, 4)
+    ).all()
+    config = RunConfig(balance=True, balance_metric="ks", seed=5)
+    splits = split_records(labeled_records, config, verbose=False)
+    assert set(splits) == {"train", "val", "test"}
+
+
+def test_preflight_redundancy_and_external_cluster_metadata(simple_records, tmp_path):
+    cluster_file = tmp_path / "clusters.json"
+    cluster_file.write_text(
+        json.dumps({str(index): index // 2 for index in range(len(simple_records))})
+    )
+    config = RunConfig(external_clusters=str(cluster_file))
+    split_records(simple_records, config, verbose=False)
+    assert config.last_clustering_stats["external"] is True
+    assert config.last_clustering_stats["non_singleton_fraction"] > 0
+
+
+def test_exact_mode_refuses_truncated_pair_budget():
+    records = [(str(index), None, "ACDEFG") for index in range(4)]
+    config = RunConfig(exact_mode=True, max_candidate_pairs=2, kmer_sizes=[2])
+    with pytest.raises(ValueError, match="Exact mode requires"):
+        compute_homology_clusters(records, config, verbose=False)
+
+
+def test_balanced_assignment_respects_hard_bounds(labeled_records):
+    config = RunConfig(balance=True, balance_weight=1.0, seed=11)
+    splits = split_records(labeled_records, config, verbose=False)
+    sizes = {name: len(values) for name, values in splits.items()}
+    bounds = config.last_assignment_stats["hard_size_bounds"]
+    for name, size in sizes.items():
+        assert bounds[name]["min"] <= size <= bounds[name]["max"]
+
+
+def test_accepted_edges_populate_verified_counter():
+    records = [("a", None, "ACDEFG"), ("b", None, "ACDEFA")]
+    config = RunConfig(exact_mode=True, max_candidate_pairs=1, kmer_sizes=[2])
+    compute_homology_clusters(records, config, verbose=False)
+    assert config.last_clustering_stats["accepted_edges"] > 0
+    assert config.last_clustering_stats["candidate_pairs_verified"] > 0

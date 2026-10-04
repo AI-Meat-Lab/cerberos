@@ -194,6 +194,60 @@ def _pca(splits, path, k=3, max_n=1000, max_features=512, seed=0, cluster_labels
     plt.close(fig)
 
 
+def _umap_projection(splits, path, k=3, max_n=2000, seed=0):
+    """Render UMAP when installed; skip cleanly when the optional dependency is absent."""
+    try:
+        import umap
+    except ImportError:
+        return
+    plt = _mpl()
+    if plt is None:
+        return
+    from collections import Counter
+
+    from .kmers import kmers
+
+    records = [record for values in splits.values() for record in values][:max_n]
+    if len(records) < 3:
+        return
+    per_sequence = [kmers(record[2], k) for record in records]
+    vocabulary = sorted(
+        Counter(kmer for values in per_sequence for kmer in values),
+        key=lambda value: value,
+    )[:512]
+    if len(vocabulary) < 2:
+        return
+    columns = {value: index for index, value in enumerate(vocabulary)}
+    matrix = np.zeros((len(records), len(vocabulary)), dtype=np.float32)
+    for row, values in enumerate(per_sequence):
+        for value in values:
+            if value in columns:
+                matrix[row, columns[value]] = 1.0
+    projection = umap.UMAP(
+        random_state=seed, n_neighbors=min(15, len(records) - 1)
+    ).fit_transform(matrix)
+    fig, ax = plt.subplots(figsize=(6.5, 5.5))
+    colors = {"train": "#4C72B0", "val": "#DD8452", "test": "#55A868"}
+    offset = 0
+    for split, values in splits.items():
+        count = min(len(values), max(0, len(records) - offset))
+        if count:
+            ax.scatter(
+                projection[offset : offset + count, 0],
+                projection[offset : offset + count, 1],
+                s=10,
+                alpha=0.6,
+                c=colors.get(split, "gray"),
+                label=split,
+            )
+        offset += count
+    ax.set_title("UMAP of k-mer profiles")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 def _similarity_hist(splits, path, k=3, max_per_split=300, seed=0):
     plt = _mpl()
     if plt is None:
@@ -244,6 +298,65 @@ def _similarity_hist(splits, path, k=3, max_per_split=300, seed=0):
     plt.close(fig)
 
 
+def _qq_features(splits, path):
+    plt = _mpl()
+    if plt is None:
+        return
+    all_records = [record for records in splits.values() for record in records]
+    overall, names = build_feature_matrix(all_records)
+    chosen = [name for name in ("length", "hydrophobicity", "charge") if name in names]
+    if overall.size == 0 or not chosen:
+        return
+    fig, axes = plt.subplots(
+        1, len(chosen), figsize=(5 * len(chosen), 4), squeeze=False
+    )
+    for axis, name in zip(axes[0], chosen, strict=True):
+        index = names.index(name)
+        reference = np.sort(overall[:, index])
+        for split, records in splits.items():
+            matrix, split_names = build_feature_matrix(records)
+            if matrix.size == 0 or name not in split_names:
+                continue
+            values = np.sort(matrix[:, split_names.index(name)])
+            expected = np.quantile(reference, np.linspace(0, 1, len(values)))
+            axis.scatter(expected, values, s=10, alpha=0.6, label=split)
+        low, high = reference.min(), reference.max()
+        axis.plot([low, high], [low, high], "k--", linewidth=1)
+        axis.set_title(f"QQ: {name}")
+        axis.set_xlabel("overall quantiles")
+        axis.set_ylabel("split quantiles")
+    axes[0, 0].legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def _accepted_rejected_hist(clustering, path, threshold):
+    plt = _mpl()
+    if plt is None or not clustering:
+        return
+    accepted = clustering.get("accepted_score_histogram", [])
+    rejected = clustering.get("rejected_score_histogram", [])
+    if not accepted and not rejected:
+        return
+    bins = np.linspace(0, 1, max(len(accepted), len(rejected), 1) + 1)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    if accepted:
+        ax.stairs(accepted, bins, label="accepted", alpha=0.7)
+    if rejected:
+        ax.stairs(rejected, bins, label="rejected", alpha=0.7)
+    ax.axvline(
+        threshold, color="black", linestyle="--", label=f"threshold={threshold:.2f}"
+    )
+    ax.set_xlabel("similarity score")
+    ax.set_ylabel("candidate count")
+    ax.set_title("Accepted vs rejected candidate scores")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 def _label_balance(splits, path):
     plt = _mpl()
     if plt is None:
@@ -269,7 +382,12 @@ def _label_balance(splits, path):
 
 
 def make_plots(
-    splits: Dict[str, list], output_dir: str, kmer_k: int = 3, cluster_labels=None
+    splits: Dict[str, list],
+    output_dir: str,
+    kmer_k: int = 3,
+    cluster_labels=None,
+    clustering=None,
+    threshold: float = 0.7,
 ) -> None:
     import os
 
@@ -288,4 +406,10 @@ def make_plots(
         k=kmer_k,
         cluster_labels=cluster_labels,
     )
+    _umap_projection(splits, os.path.join(p, "umap_projection.png"), k=kmer_k)
     _similarity_hist(splits, os.path.join(p, "pairwise_similarity.png"), k=kmer_k)
+    if clustering is not None:
+        _qq_features(splits, os.path.join(p, "feature_qq.png"))
+        _accepted_rejected_hist(
+            clustering, os.path.join(p, "accepted_rejected_scores.png"), threshold
+        )

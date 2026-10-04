@@ -25,10 +25,22 @@ def _parse_kmer_sizes(value: str) -> list[int]:
     return _parse_csv_ints(value, "k-mer sizes")
 
 
+def _parse_csv_floats(value: str, label: str) -> list[float]:
+    try:
+        values = [float(item.strip()) for item in value.split(",") if item.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"{label} must be comma-separated numbers"
+        ) from exc
+    if not values:
+        raise argparse.ArgumentTypeError(f"{label} must not be empty")
+    return values
+
+
 def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", default="cerberos_out")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--diagnostics-sample-size", type=int, default=1000)
+    parser.add_argument("--diagnostics-sample-size", type=int, default=10000)
 
 
 def _add_clustering(parser: argparse.ArgumentParser) -> None:
@@ -36,7 +48,7 @@ def _add_clustering(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--val-pct", type=float, default=0.10)
     parser.add_argument("--test-pct", type=float, default=0.10)
     parser.add_argument("--no-clustering", action="store_true")
-    parser.add_argument("--similarity-threshold", type=float, default=0.70)
+    parser.add_argument("--similarity-threshold", type=float, default=0.50)
     parser.add_argument("--kmer-sizes", type=_parse_kmer_sizes, default=[3])
     parser.add_argument("--num-hashes", type=int, default=128)
     parser.add_argument("--max-candidate-pairs", type=int, default=250_000)
@@ -48,11 +60,32 @@ def _add_clustering(parser: argparse.ArgumentParser) -> None:
         choices=["none", "kmer-exact", "levenshtein", "containment", "cosine"],
         default="none",
     )
+    parser.add_argument(
+        "--verification-metrics",
+        type=lambda value: [item.strip() for item in value.split(",") if item.strip()],
+        default=[],
+    )
+    parser.add_argument(
+        "--metric-aggregation",
+        choices=["max", "mean", "vote", "weighted"],
+        default="max",
+    )
+    parser.add_argument(
+        "--metric-weights",
+        type=lambda value: _parse_csv_floats(value, "metric weights"),
+        default=[],
+    )
     parser.add_argument("--prefilter-threshold", type=float, default=0.30)
     parser.add_argument("--strict-clustering", action="store_true")
     parser.add_argument("--min-non-singleton-fraction", type=float, default=0.05)
     parser.add_argument("--balance", action="store_true")
     parser.add_argument("--balance-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--balance-metric", choices=["mean", "wasserstein", "ks"], default="wasserstein"
+    )
+    parser.add_argument("--balance-report", action="store_true")
+    parser.add_argument("--backend", choices=["auto", "numpy", "cupy"], default="auto")
+    parser.add_argument("--external-clusters")
     parser.add_argument(
         "--lsh-rows",
         type=lambda value: _parse_csv_ints(value, "LSH rows"),
@@ -85,6 +118,9 @@ def _build_config(args: argparse.Namespace) -> RunConfig:
         similarity_threshold=args.similarity_threshold,
         reduced_alphabet=args.reduced_alphabet,
         verify_with=args.verify_with,
+        verification_metrics=args.verification_metrics,
+        metric_aggregation=args.metric_aggregation,
+        metric_weights=args.metric_weights,
         prefilter_threshold=args.prefilter_threshold,
         seed=args.seed,
         no_clustering=args.no_clustering,
@@ -93,6 +129,10 @@ def _build_config(args: argparse.Namespace) -> RunConfig:
         min_non_singleton_fraction=args.min_non_singleton_fraction,
         balance=args.balance,
         balance_weight=args.balance_weight,
+        balance_metric=args.balance_metric,
+        balance_report=args.balance_report,
+        backend=args.backend,
+        external_clusters=args.external_clusters,
         lsh_rows=args.lsh_rows,
         exact_mode=args.exact_mode,
         exact_mode_max_sequences=args.exact_mode_max_sequences,

@@ -31,7 +31,8 @@ dependencies = ["numpy>=1.23"]
 
 [project.optional-dependencies]
 plots = ["matplotlib>=3.9"]
-full = ["matplotlib>=3.9"]
+full = ["matplotlib>=3.9", "umap-learn>=0.5.6"]
+gpu = ["cupy>=13.0"]
 dev = [
     "matplotlib>=3.9",
     "pytest>=8.0",

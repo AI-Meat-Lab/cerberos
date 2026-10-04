@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
@@ -79,6 +79,25 @@ def _cluster_feature_data(clusters, records):
     return data, list(names), global_mean, scales
 
 
+def _wasserstein(left, right):
+    if not len(left) or not len(right):
+        return 0.0
+    quantiles = np.linspace(0.0, 1.0, max(len(left), len(right)))
+    return float(
+        np.mean(np.abs(np.quantile(left, quantiles) - np.quantile(right, quantiles)))
+    )
+
+
+def _ks_distance(left, right):
+    if not len(left) or not len(right):
+        return 0.0
+    values = np.sort(np.unique(np.concatenate([left, right])))
+    left_sorted, right_sorted = np.sort(left), np.sort(right)
+    left_cdf = np.searchsorted(left_sorted, values, side="right") / len(left)
+    right_cdf = np.searchsorted(right_sorted, values, side="right") / len(right)
+    return float(np.max(np.abs(left_cdf - right_cdf)))
+
+
 def assign_clusters(
     clusters: List[List[int]],
     n: int,
@@ -104,6 +123,16 @@ def assign_clusters(
             strict=True,
         )
     )
+    target_counts = dict(zip(_SPLITS, _target_sizes(n, config), strict=True))
+    lower_bounds = {
+        name: (
+            max(1, int(np.floor(targets[name] * 0.95)))
+            if target_counts[name] > 0 and len(clusters) >= 3
+            else int(np.floor(targets[name] * 0.95))
+        )
+        for name in _SPLITS
+    }
+    upper_bounds = {name: int(np.ceil(targets[name] * 1.05)) for name in _SPLITS}
     counts = dict.fromkeys(_SPLITS, 0)
     shuffled = list(clusters)
     random.Random(config.seed).shuffle(shuffled)
@@ -118,6 +147,9 @@ def assign_clusters(
         feature_data, feature_names, global_mean, scales = _cluster_feature_data(
             clusters, records
         )
+    feature_matrix = (
+        build_feature_matrix(records)[0] if records is not None else np.zeros((0, 0))
+    )
     feature_sums = {name: np.zeros_like(global_mean) for name in _SPLITS}
     label_sums = dict.fromkeys(_SPLITS, 0.0)
     total_positive = 0.0
@@ -133,22 +165,62 @@ def assign_clusters(
                 if index in cluster and record[1] is not None
             )
     objective_total = 0.0
+    balance_constraint_fallback = False
 
-    for cluster in shuffled:
+    for position, cluster in enumerate(shuffled):
         size = len(cluster)
         cluster_sum = feature_data.get(id(cluster), np.zeros_like(global_mean))
         costs = {}
+        remaining_clusters = len(shuffled) - position - 1
+        unfilled = [
+            name for name in _SPLITS if counts[name] == 0 and lower_bounds[name] > 0
+        ]
+        reserved = set(unfilled) if remaining_clusters < len(unfilled) else set()
         for name in _SPLITS:
             new_count = counts[name] + size
+            if config.balance and records is not None:
+                if new_count > upper_bounds[name] or name in reserved:
+                    continue
+                remaining_records = n - sum(counts.values()) - size
+                other_need = sum(
+                    max(
+                        0,
+                        lower_bounds[other]
+                        - (new_count if other == name else counts[other]),
+                    )
+                    for other in _SPLITS
+                )
+                if remaining_records < other_need:
+                    continue
             size_cost = (
                 abs(new_count - targets[name]) - abs(counts[name] - targets[name])
             ) / max(1.0, n)
             composition_cost = 0.0
             if global_mean.size:
-                new_mean = (feature_sums[name] + cluster_sum) / new_count
-                composition_cost = float(
-                    np.mean(((new_mean - global_mean) / scales) ** 2)
-                )
+                if config.balance_metric == "mean":
+                    new_mean = (feature_sums[name] + cluster_sum) / new_count
+                    composition_cost = float(
+                        np.mean(((new_mean - global_mean) / scales) ** 2)
+                    )
+                else:
+                    current_indices = [
+                        index
+                        for cluster_indices in clusters
+                        if cluster_indices[0] in assignment
+                        and assignment[cluster_indices[0]] == name
+                        for index in cluster_indices
+                    ]
+                    candidate_indices = current_indices + list(cluster)
+                    for column in range(feature_matrix.shape[1]):
+                        values = feature_matrix[candidate_indices, column]
+                        target = feature_matrix[:, column]
+                        distance = (
+                            _wasserstein(values, target)
+                            if config.balance_metric == "wasserstein"
+                            else _ks_distance(values, target)
+                        )
+                        composition_cost += distance / max(scales[column], 1.0)
+                    composition_cost /= max(1, feature_matrix.shape[1])
             label_cost = 0.0
             if config.stratify_labels and total_positive and new_count:
                 target_positive = (
@@ -166,8 +238,11 @@ def assign_clusters(
             costs[name] = (
                 size_cost + config.balance_weight * composition_cost + label_cost
             )
+        if not costs:
+            balance_constraint_fallback = True
+            costs = {name: abs(counts[name] + size - targets[name]) for name in _SPLITS}
         best_split = min(
-            _SPLITS,
+            costs,
             key=lambda name: (costs[name], _SPLITS.index(name)),
         )
         assignment.update(dict.fromkeys(cluster, best_split))
@@ -223,6 +298,22 @@ def assign_clusters(
                         current[id(right)],
                         current[id(left)],
                     )
+                    if config.balance:
+                        trial_counts = dict.fromkeys(_SPLITS, 0)
+                        for trial_cluster in clusters:
+                            trial_counts[current[id(trial_cluster)]] += len(
+                                trial_cluster
+                            )
+                        if any(
+                            trial_counts[name] < lower_bounds[name]
+                            or trial_counts[name] > upper_bounds[name]
+                            for name in _SPLITS
+                        ):
+                            current[id(left)], current[id(right)] = (
+                                current[id(right)],
+                                current[id(left)],
+                            )
+                            continue
                     after = objective(current)
                     if after + 1e-12 < before:
                         improved = True
@@ -251,6 +342,11 @@ def assign_clusters(
         "objective": float(objective_total),
         "local_search_iterations": config.local_search_iterations,
         "stratify_labels": config.stratify_labels,
+        "hard_size_bounds": {
+            name: {"min": lower_bounds[name], "max": upper_bounds[name]}
+            for name in _SPLITS
+        },
+        "size_constraint_fallback": balance_constraint_fallback,
     }
     if global_mean.size:
         config.last_assignment_stats["feature_mean_abs_error"] = {
@@ -269,17 +365,51 @@ def assign_clusters(
             for name in _SPLITS
         }
     if config.pareto_points > 1:
-        config.last_assignment_stats["pareto_frontier"] = [
-            {
-                "balance_weight": round(index / (config.pareto_points - 1), 6),
-                "size_error": sum(
-                    abs(counts[name] - targets[name]) for name in _SPLITS
-                ),
-                "composition_error": config.last_assignment_stats.get(
+        frontier = []
+        for index in range(config.pareto_points):
+            weight = index / (config.pareto_points - 1)
+            options = config.as_dict()
+            options.update(
+                {
+                    "prefilter_threshold": config.prefilter_threshold,
+                    "balance_weight": weight,
+                    "pareto_points": 0,
+                }
+            )
+            alternative = RunConfig(**options)
+            assign_clusters(clusters, n, alternative, records=records)
+            alternative_stats = alternative.last_assignment_stats
+            size_error = sum(
+                abs(value)
+                for value in alternative_stats.get("size_errors", {}).values()
+            )
+            feature_error = sum(
+                value
+                for value in alternative_stats.get(
                     "feature_mean_abs_error", {}
-                ),
-            }
-            for index in range(config.pareto_points)
+                ).values()
+                if value is not None
+            )
+            frontier.append(
+                {
+                    "balance_weight": round(weight, 6),
+                    "size_error": float(size_error),
+                    "composition_error": float(feature_error),
+                    "observed_sizes": alternative_stats.get("observed_sizes", {}),
+                }
+            )
+        config.last_assignment_stats["pareto_frontier"] = [
+            point
+            for point in frontier
+            if not any(
+                other["size_error"] <= point["size_error"]
+                and other["composition_error"] <= point["composition_error"]
+                and (
+                    other["size_error"] < point["size_error"]
+                    or other["composition_error"] < point["composition_error"]
+                )
+                for other in frontier
+            )
         ]
     return assignment
 
@@ -310,7 +440,32 @@ def split_records(
     """Split records while keeping inferred homology clusters intact."""
     from .cluster import compute_homology_clusters
 
-    if config.no_clustering:
+    if config.external_clusters:
+        from .advanced import load_cluster_assignments
+
+        clusters = load_cluster_assignments(config.external_clusters, len(records))
+        config.last_clustering_stats = {
+            "input_sequences": len(records),
+            "source": config.external_clusters,
+            "external": True,
+            "accepted_edges": sum(max(0, len(cluster) - 1) for cluster in clusters),
+            "cluster_count": len(clusters),
+            "singleton_count": sum(len(cluster) == 1 for cluster in clusters),
+            "non_singleton_fraction": sum(
+                len(cluster) for cluster in clusters if len(cluster) > 1
+            )
+            / max(1, len(records)),
+            "cluster_size_distribution": dict(
+                Counter(str(len(cluster)) for cluster in clusters)
+            ),
+        }
+        config.last_cluster_by_record_id = {
+            records[index][0]: cluster_id
+            for cluster_id, cluster in enumerate(clusters)
+            for index in cluster
+        }
+        assignment = assign_clusters(clusters, len(records), config, records=records)
+    elif config.no_clustering:
         if config.strict_clustering:
             raise ValueError(
                 "--strict-clustering cannot be combined with --no-clustering"
