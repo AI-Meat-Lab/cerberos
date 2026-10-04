@@ -223,9 +223,15 @@ def _umap_projection(splits, path, k=3, max_n=2000, seed=0):
         for value in values:
             if value in columns:
                 matrix[row, columns[value]] = 1.0
-    projection = umap.UMAP(
-        random_state=seed, n_neighbors=min(15, len(records) - 1)
-    ).fit_transform(matrix)
+    try:
+        projection = umap.UMAP(
+            random_state=seed, n_neighbors=min(15, len(records) - 1)
+        ).fit_transform(matrix)
+    except Exception:
+        # UMAP's spectral initialization can fail for tiny or degenerate
+        # datasets, and optional backends vary across Python/SciPy versions.
+        # UMAP is an enhancement, so leave the standard plot bundle intact.
+        return
     fig, ax = plt.subplots(figsize=(6.5, 5.5))
     colors = {"train": "#4C72B0", "val": "#DD8452", "test": "#55A868"}
     offset = 0
